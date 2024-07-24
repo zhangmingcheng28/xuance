@@ -6,13 +6,13 @@ from abc import ABC
 from pathlib import Path
 from argparse import Namespace
 from mpi4py import MPI
-from typing import Optional
+from xuance.common import Optional
 from gym.spaces import Dict, Space
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from xuance.common import get_time_string, create_directory, RunningMeanStd, space2shape, EPS
 from xuance.environment import DummyVecEnv
-from xuance.torch import REGISTRY_Representation, REGISTRY_Learners
+from xuance.torch import REGISTRY_Representation, REGISTRY_Learners, Module
 from xuance.torch.utils import NormalizeFunctions, ActivationFunctions
 
 
@@ -95,8 +95,8 @@ class Agent(ABC):
         self.log_dir = log_dir
 
         # Prepare necessary components.
-        self.policy: Optional[nn.Module] = None
-        self.learner: Optional[nn.Module] = None
+        self.policy: Optional[Module] = None
+        self.learner: Optional[Module] = None
         self.memory: Optional[object] = None
 
     def save_model(self, model_name):

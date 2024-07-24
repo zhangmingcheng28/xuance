@@ -1,6 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
+from xuance.common import List, Dict, Optional
 from gym.spaces import Space
 from xuance.common import space2shape, create_memory
 
@@ -230,6 +230,8 @@ class MARL_OnPolicyBuffer(BaseBuffer):
                     if self.use_advantage_norm:
                         adv_batch_dict[agt_key] = (adv_batch - np.mean(adv_batch)) / (np.std(adv_batch) + 1e-8)
                 samples_dict[data_key] = adv_batch_dict
+            elif data_key == "state":
+                samples_dict[data_key] = self.data[data_key][env_choices, step_choices]
             else:
                 samples_dict[data_key] = {k: self.data[data_key][k][env_choices, step_choices] for k in self.agent_keys}
         samples_dict['batch_size'] = len(indexes)

@@ -4,14 +4,16 @@ Paper link:
 https://arxiv.org/pdf/2103.01955.pdf
 Implementation: TensorFlow 2.X
 """
-from xuance.tensorflow.learners import *
+from argparse import Namespace
+from xuance.tensorflow import tf, tk, Module
+from xuance.tensorflow.learners import LearnerMAS
 from xuance.tensorflow.utils.operations import update_linear_decay
 
 
-class MAPPO_Learner(LearnerMAS):
+class MAPPO_Clip_Learner(LearnerMAS):
     def __init__(self,
                  config: Namespace,
-                 policy: tk.Model,
+                 policy: Module,
                  optimizer: tk.optimizers.Optimizer,
                  device: str = "cpu:0",
                  model_dir: str = "./",
@@ -27,7 +29,7 @@ class MAPPO_Learner(LearnerMAS):
         self.use_global_state = config.use_global_state
         self.vf_coef, self.ent_coef = config.vf_coef, config.ent_coef
         self.huber_loss = tk.losses.Huber(reduction="none", delta=self.huber_delta)
-        super(MAPPO_Learner, self).__init__(config, policy, optimizer, device, model_dir)
+        super(MAPPO_Clip_Learner, self).__init__(config, policy, optimizer, device, model_dir)
         self.lr = config.learning_rate
         self.end_factor_lr_decay = config.end_factor_lr_decay
 

@@ -1,9 +1,9 @@
-import tensorflow_probability as tfp
-import tensorflow as tf
-
-tfd = tfp.distributions
-kl_div = tfd.kl_divergence
+from tensorflow.keras.activations import softplus
 from abc import ABC, abstractmethod
+from xuance.tensorflow import tf, tfd, Tensor
+
+
+kl_div = tfd.kl_divergence
 
 
 class Distribution(ABC):
@@ -20,7 +20,7 @@ class Distribution(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def log_prob(self, x: tf.Tensor):
+    def log_prob(self, x: Tensor):
         raise NotImplementedError
 
     @abstractmethod
@@ -39,11 +39,18 @@ class Distribution(ABC):
 class CategoricalDistribution(Distribution):
     def __init__(self, action_dim: int):
         super(CategoricalDistribution, self).__init__()
+        self.probs, self.logits = None, None
         self.action_dim = action_dim
 
-    def set_param(self, logits):
-        self.logits = logits
-        self.distribution = tfd.Categorical(logits=logits)
+    def set_param(self, probs=None, logits=None):
+        if probs is not None:
+            self.distribution = tfd.Categorical(probs=probs)
+        elif logits is not None:
+            self.distribution = tfd.Categorical(logits=logits)
+        else:
+            raise RuntimeError("Failed to setup distributions without given probs or logits.")
+        self.probs = self.distribution.probs
+        self.logits = self.distribution.logits
 
     def get_param(self):
         return self.logits
@@ -69,6 +76,7 @@ class CategoricalDistribution(Distribution):
 class DiagGaussianDistribution(Distribution):
     def __init__(self, action_dim: int):
         super(DiagGaussianDistribution, self).__init__()
+        self.mu, self.std = None, None
         self.action_dim = action_dim
 
     def set_param(self, mu, std):
@@ -95,3 +103,20 @@ class DiagGaussianDistribution(Distribution):
         assert isinstance(other,
                           DiagGaussianDistribution), "KL Divergence should be measured by two same distribution with the same type"
         return kl_div(self.distribution, other.distribution)
+
+
+class ActivatedDiagGaussianDistribution(DiagGaussianDistribution):
+    def __init__(self, action_dim: int, activation_action):
+        super(ActivatedDiagGaussianDistribution, self).__init__(action_dim)
+        self.activation_fn = activation_action()
+
+    def activated_rsample(self):
+        return self.activation_fn(self.stochastic_sample())
+
+    def activated_rsample_and_logprob(self):
+        act_pre_activated = self.stochastic_sample()  # sample without being activated.
+        act_activated = self.activation_fn(act_pre_activated)
+        log_prob = self.distribution.log_prob(act_pre_activated)
+        correction = - 2. * (tf.math.log(Tensor([2.0])) - act_pre_activated - softplus(-2. * act_pre_activated))
+        log_prob += correction
+        return act_activated, log_prob.sum(-1)

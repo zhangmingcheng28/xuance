@@ -1,12 +1,14 @@
-from xuance.tensorflow.policies import *
-from xuance.tensorflow.utils import *
+import numpy as np
+import torch
+from gym.spaces import Space, Discrete
+from xuance.common import Sequence, Optional, Union
+from xuance.tensorflow import tf, tk, tfd, Tensor, Module
 from xuance.tensorflow.representations import Basic_Identical
-import tensorflow_probability as tfp
+from xuance.tensorflow.utils import mlp_block, CategoricalDistribution
+from .core import VDN_mixer
 
-tfd = tfp.distributions
 
-
-class BasicQhead(tk.Model):
+class BasicQhead(Module):
     def __init__(self,
                  state_dim: int,
                  action_dim: int,
@@ -25,11 +27,12 @@ class BasicQhead(tk.Model):
         layers_.extend(mlp_block(input_shape[0], action_dim, None, None, None, device)[0])
         self.model = tk.Sequential(layers_)
 
-    def call(self, x: tf.Tensor, **kwargs):
+    @tf.function
+    def call(self, x: Tensor, **kwargs):
         return self.model(x)
 
 
-class BasicQnetwork(tk.Model):
+class BasicQnetwork(Module):
     def __init__(self,
                  action_space: Discrete,
                  n_agents: int,
@@ -50,6 +53,7 @@ class BasicQnetwork(tk.Model):
                                        hidden_size, normalize, initializer, activation, device)
         self.copy_target()
 
+    @tf.function
     def call(self, inputs: Union[np.ndarray, dict], **kwargs):
         observations = tf.reshape(inputs['obs'], [-1, self.obs_dim])
         IDs = tf.reshape(inputs['ids'], [-1, self.n_agents])
@@ -72,7 +76,7 @@ class BasicQnetwork(tk.Model):
         self.target_Qhead.set_weights(self.eval_Qhead.get_weights())
 
 
-class ActorNet(tk.Model):
+class ActorNet(Module):
     def __init__(self,
                  state_dim: int,
                  n_agents: int,
@@ -96,7 +100,8 @@ class ActorNet(tk.Model):
         self.out_mu = tk.layers.Dense(units=action_dim, input_shape=(hidden_sizes[0],))
         self.out_std = tk.layers.Dense(units=action_dim, input_shape=(hidden_sizes[0],))
 
-    def call(self, x: tf.Tensor, **kwargs):
+    @tf.function
+    def call(self, x: Tensor, **kwargs):
         output = self.outputs(x)
         mu = tf.sigmoid(self.out_mu(output))
         std = tf.clip_by_value(self.out_std(output), -20, 1)
@@ -104,7 +109,7 @@ class ActorNet(tk.Model):
         return mu, std
 
 
-class CriticNet(tk.Model):
+class CriticNet(Module):
     def __init__(self,
                  state_dim: int,
                  n_agents: int,
@@ -123,11 +128,12 @@ class CriticNet(tk.Model):
         layers.extend(mlp_block(input_shape[0], 1, None, None, initializer, device)[0])
         self.model = tk.Sequential(layers)
 
-    def call(self, x: tf.Tensor, **kwargs):
+    @tf.function
+    def call(self, x: Tensor, **kwargs):
         return self.model(x)
 
 
-class MAAC_Policy(tk.Model):
+class MAAC_Policy(Module):
     """
     MAAC_Policy: Multi-Agent Actor-Critic Policy with Gaussian policies
     """
@@ -135,7 +141,7 @@ class MAAC_Policy(tk.Model):
     def __init__(self,
                  action_space: Discrete,
                  n_agents: int,
-                 representation: tk.Model,
+                 representation: Module,
                  mixer: Optional[VDN_mixer] = None,
                  actor_hidden_size: Sequence[int] = None,
                  critic_hidden_size: Sequence[int] = None,
@@ -162,6 +168,7 @@ class MAAC_Policy(tk.Model):
         self.identical_rep = True if isinstance(self.representation, Basic_Identical) else False
         self.pi_dist = None
 
+    @tf.function
     def call(self, inputs: Union[np.ndarray, dict], *rnn_hidden, **kwargs):
         observation = inputs['obs']
         agent_ids = inputs['ids']
@@ -183,7 +190,7 @@ class MAAC_Policy(tk.Model):
         dist = tfd.MultivariateNormalTriL(loc=mu, scale_tril=cov_mat)
         return rnn_hidden, dist
 
-    def get_values(self, critic_in: tf.Tensor, agent_ids: tf.Tensor, *rnn_hidden: tf.Tensor, **kwargs):
+    def get_values(self, critic_in: Tensor, agent_ids: Tensor, *rnn_hidden: Tensor, **kwargs):
         shape_obs = critic_in.shape
         # get representation features
         if self.use_rnn:
@@ -201,7 +208,7 @@ class MAAC_Policy(tk.Model):
         v = self.critic(critic_in)
         return rnn_hidden, v
 
-    def value_tot(self, values_n: tf.Tensor, global_state=None):
+    def value_tot(self, values_n: Tensor, global_state=None):
         if global_state is not None:
             global_state = torch.as_tensor(global_state).to(self.device)
         return values_n if self.mixer is None else self.mixer(values_n, global_state)
@@ -216,7 +223,7 @@ class MAAC_Policy(tk.Model):
             return params + self.representation.trainable_variables
 
 
-class Basic_ISAC_policy(tk.Model):
+class Basic_ISAC_Policy(Module):
     def __init__(self,
                  action_space: Space,
                  n_agents: int,
@@ -228,7 +235,7 @@ class Basic_ISAC_policy(tk.Model):
                  activation: Optional[tk.layers.Layer] = None,
                  device: str = "cpu:0"
                  ):
-        super(Basic_ISAC_policy, self).__init__()
+        super(Basic_ISAC_Policy, self).__init__()
         self.action_dim = action_space.shape[0]
         self.n_agents = n_agents
         self.representation = representation
@@ -251,6 +258,7 @@ class Basic_ISAC_policy(tk.Model):
         self.parameters_critic = self.critic_net.trainable_variables
         self.soft_update(tau=1.0)
 
+    @tf.function
     def call(self, inputs: Union[np.ndarray, dict], **kwargs):
         observations = tf.reshape(inputs['obs'], [-1, self.obs_dim])
         IDs = tf.reshape(inputs['ids'], [-1, self.n_agents])
@@ -263,17 +271,17 @@ class Basic_ISAC_policy(tk.Model):
         dist = tfd.MultivariateNormalTriL(loc=mu, scale_tril=cov_mat)
         return outputs, dist
 
-    def critic(self, observation: tf.Tensor, actions: tf.Tensor, agent_ids: tf.Tensor):
+    def critic(self, observation: Tensor, actions: Tensor, agent_ids: Tensor):
         outputs = self.representation(observation)
         critic_in = tf.concat([outputs['state'], actions, agent_ids], axis=-1)
         return self.critic_net(critic_in)
 
-    def target_critic(self, observation: tf.Tensor, actions: tf.Tensor, agent_ids: tf.Tensor):
+    def target_critic(self, observation: Tensor, actions: Tensor, agent_ids: Tensor):
         outputs = self.representation(observation)
         critic_in = tf.concat([outputs['state'], actions, agent_ids], axis=-1)
         return self.target_critic_net(critic_in)
 
-    def target_actor(self, observation: tf.Tensor, agent_ids: tf.Tensor):
+    def target_actor(self, observation: Tensor, agent_ids: Tensor):
         outputs = self.representation(observation)
         actor_in = tf.concat([outputs['state'], agent_ids], axis=-1)
         mu, std = self.target_actor_net(actor_in)
@@ -290,7 +298,7 @@ class Basic_ISAC_policy(tk.Model):
             tp.assign((1 - tau) * tp + tau * ep)
 
 
-class MASAC_policy(Basic_ISAC_policy):
+class MASAC_Policy(Basic_ISAC_Policy):
     def __init__(self,
                  action_space: Space,
                  n_agents: int,
@@ -302,7 +310,7 @@ class MASAC_policy(Basic_ISAC_policy):
                  activation: Optional[tk.layers.Layer] = None,
                  device: str = "cpu:0"
                  ):
-        super(MASAC_policy, self).__init__(action_space, n_agents, representation,
+        super(MASAC_Policy, self).__init__(action_space, n_agents, representation,
                                            actor_hidden_size, critic_hidden_size,
                                            normalize, initializer, activation, device)
         dim_input_critic = (representation.output_shapes['state'][0] + self.action_dim) * self.n_agents
@@ -313,7 +321,7 @@ class MASAC_policy(Basic_ISAC_policy):
         self.parameters_critic = self.critic_net.trainable_variables
         self.soft_update(tau=1.0)
 
-    def critic(self, observation: tf.Tensor, actions: tf.Tensor, agent_ids: tf.Tensor):
+    def critic(self, observation: Tensor, actions: Tensor, agent_ids: Tensor):
         bs = observation.shape[0]
         outputs_n = self.representation(observation)['state']
         outputs_n = tf.tile(tf.reshape(outputs_n, [bs, 1, -1]), (1, self.n_agents, 1))
@@ -321,7 +329,7 @@ class MASAC_policy(Basic_ISAC_policy):
         critic_in = tf.concat([outputs_n, actions_n, agent_ids], axis=-1)
         return self.critic_net(critic_in)
 
-    def target_critic(self, observation: tf.Tensor, actions: tf.Tensor, agent_ids: tf.Tensor):
+    def target_critic(self, observation: Tensor, actions: Tensor, agent_ids: Tensor):
         bs = observation.shape[0]
         outputs_n = self.representation(observation)['state']
         outputs_n = tf.tile(tf.reshape(outputs_n, [bs, 1, -1]), (1, self.n_agents, 1))

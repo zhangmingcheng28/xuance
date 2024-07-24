@@ -1,11 +1,10 @@
-from tqdm import tqdm
 import numpy as np
+from tqdm import tqdm
 from copy import deepcopy
-from typing import Optional
 from argparse import Namespace
-from xuance.torch.agents.base import Agent
+from xuance.common import Optional, DummyOffPolicyBuffer, DummyOffPolicyBuffer_Atari
 from xuance.environment import DummyVecEnv
-from xuance.common import DummyOffPolicyBuffer, DummyOffPolicyBuffer_Atari
+from xuance.torch.agents.base import Agent
 
 
 class OffPolicyAgent(Agent):

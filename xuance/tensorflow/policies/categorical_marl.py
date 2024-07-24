@@ -1,9 +1,13 @@
-from xuance.tensorflow.policies import *
-from xuance.tensorflow.utils import *
+import numpy as np
+from gym.spaces import Discrete
+from xuance.common import Sequence, Optional, Union
+from xuance.tensorflow import tf, tk, Tensor, Module
 from xuance.tensorflow.representations import Basic_Identical
+from xuance.tensorflow.utils import mlp_block, CategoricalDistribution
+from .core import VDN_mixer
 
 
-class ActorNet(tk.Model):
+class ActorNet(Module):
     def __init__(self,
                  state_dim: int,
                  action_dim: int,
@@ -24,12 +28,13 @@ class ActorNet(tk.Model):
         self.pi_logits = tk.Sequential(layers)
         self.dist = CategoricalDistribution(action_dim)
 
-    def call(self, x: tf.Tensor, **kwargs):
+    @tf.function
+    def call(self, x: Tensor, **kwargs):
         self.dist.set_param(self.pi_logits(x))
         return self.pi_logits(x)
 
 
-class CriticNet(tk.Model):
+class CriticNet(Module):
     def __init__(self,
                  state_dim: int,
                  n_agents: int,
@@ -47,11 +52,12 @@ class CriticNet(tk.Model):
         layers.extend(mlp_block(input_shape[0], 1, None, None, None, device)[0])
         self.model = tk.Sequential(layers)
 
-    def call(self, x: tf.Tensor, **kwargs):
+    @tf.function
+    def call(self, x: Tensor, **kwargs):
         return self.model(x)[:, :, 0]
 
 
-class COMA_CriticNet(tk.Model):
+class COMA_CriticNet(Module):
     def __init__(self,
                  state_dim: int,
                  act_dim: int,
@@ -69,11 +75,12 @@ class COMA_CriticNet(tk.Model):
         layers.extend(mlp_block(input_shape[0], act_dim, None, None, None, device)[0])
         self.model = tk.Sequential(layers)
 
-    def call(self, x: tf.Tensor, **kwargs):
+    @tf.function
+    def call(self, x: Tensor, **kwargs):
         return self.model(x)
 
 
-class MAAC_Policy(tk.Model):
+class MAAC_Policy(Module):
     """
     MAAC_Policy: Multi-Agent Actor-Critic Policy
     """
@@ -106,6 +113,7 @@ class MAAC_Policy(tk.Model):
         self.identical_rep = True if isinstance(self.representation, Basic_Identical) else False
         self.pi_dist = CategoricalDistribution(self.action_dim)
 
+    @tf.function
     def call(self, inputs: Union[np.ndarray, dict], *rnn_hidden, **kwargs):
         observation = inputs['obs']
         agent_ids = inputs['ids']
@@ -129,7 +137,7 @@ class MAAC_Policy(tk.Model):
             self.pi_dist.set_param(logits=act_logits)
         return rnn_hidden, self.pi_dist
 
-    def get_values(self, critic_in: tf.Tensor, agent_ids: tf.Tensor, *rnn_hidden: tf.Tensor):
+    def get_values(self, critic_in: Tensor, agent_ids: Tensor, *rnn_hidden: Tensor):
         shape_obs = critic_in.shape
         # get representation features
         if self.use_rnn:
@@ -147,7 +155,7 @@ class MAAC_Policy(tk.Model):
         v = self.critic(critic_in)
         return rnn_hidden, v
 
-    def value_tot(self, values_n: tf.Tensor, global_state=None):
+    def value_tot(self, values_n: Tensor, global_state=None):
         if global_state is not None:
             with tf.device(self.device):
                 global_state = tf.convert_to_tensor(global_state)
@@ -167,7 +175,7 @@ class MAAC_Policy_Share(MAAC_Policy):
     def __init__(self,
                  action_space: Discrete,
                  n_agents: int,
-                 representation: tk.Model,
+                 representation: Module,
                  mixer: Optional[VDN_mixer] = None,
                  actor_hidden_size: Sequence[int] = None,
                  critic_hidden_size: Sequence[int] = None,
@@ -192,6 +200,7 @@ class MAAC_Policy_Share(MAAC_Policy):
         self.identical_rep = True if isinstance(self.representation, Basic_Identical) else False
         self.pi_dist = CategoricalDistribution(self.action_dim)
 
+    @tf.function
     def call(self, inputs: Union[np.ndarray, dict], *rnn_hidden, **kwargs):
         observation = inputs['obs']
         agent_ids = inputs['ids']
@@ -224,7 +233,7 @@ class MAAC_Policy_Share(MAAC_Policy):
 
         return rnn_hidden, self.pi_dist, values_tot
 
-    def value_tot(self, values_n: tf.Tensor, global_state=None):
+    def value_tot(self, values_n: Tensor, global_state=None):
         if global_state is not None:
             with tf.device(self.device):
                 global_state = tf.convert_to_tensor(global_state)
@@ -240,7 +249,7 @@ class MAAC_Policy_Share(MAAC_Policy):
             return params + self.representation.trainable_variables
 
 
-class COMA_Policy(tk.Model):
+class COMA_Policy(Module):
     def __init__(self,
                  action_space: Discrete,
                  n_agents: int,
@@ -272,6 +281,7 @@ class COMA_Policy(tk.Model):
         self.parameters_critic = self.critic.trainable_variables
         self.pi_dist = CategoricalDistribution(self.action_dim)
 
+    @tf.function
     def call(self, inputs: Union[np.ndarray, dict], *rnn_hidden, **kwargs):
         observation = inputs['obs']
         agent_ids = inputs['ids']
@@ -290,11 +300,11 @@ class COMA_Policy(tk.Model):
         act_probs = tf.nn.softmax(act_logits, axis=-1)
         act_probs = (1 - kwargs['epsilon']) * act_probs + kwargs['epsilon'] * 1 / self.action_dim
         if ('avail_actions' in kwargs.keys()) and (kwargs['avail_actions'] is not None):
-            avail_actions = tf.Tensor(kwargs['avail_actions'])
+            avail_actions = Tensor(kwargs['avail_actions'])
             act_probs[avail_actions == 0] = 0.0
         return rnn_hidden, act_probs
 
-    def get_values(self, critic_in: tf.Tensor, *rnn_hidden: tf.Tensor, target=False):
+    def get_values(self, critic_in: Tensor, *rnn_hidden: Tensor, target=False):
         # get critic values
         v = self.target_critic(critic_in) if target else self.critic(critic_in)
         return [None, None], v
@@ -309,11 +319,11 @@ class COMA_Policy(tk.Model):
         self.target_critic.set_weights(self.critic.get_weights())
 
 
-class MeanFieldActorCriticPolicy(tk.Model):
+class MeanFieldActorCriticPolicy(Module):
     def __init__(self,
                  action_space: Discrete,
                  n_agents: int,
-                 representation: tk.Model,
+                 representation: Module,
                  actor_hidden_size: Sequence[int] = None,
                  critic_hidden_size: Sequence[int] = None,
                  normalize: Optional[tk.layers.Layer] = None,
@@ -333,6 +343,7 @@ class MeanFieldActorCriticPolicy(tk.Model):
         self.identical_rep = True if isinstance(self.representation, Basic_Identical) else False
         self.pi_dist = CategoricalDistribution(self.action_dim)
 
+    @tf.function
     def call(self, inputs: Union[np.ndarray, dict], **kwargs):
         observations = inputs['obs']
         IDs = inputs['ids']
@@ -349,7 +360,7 @@ class MeanFieldActorCriticPolicy(tk.Model):
         else:
             return params + self.representation.trainable_variables
 
-    def critic(self, observation: tf.Tensor, actions_mean: tf.Tensor, agent_ids: tf.Tensor):
+    def critic(self, observation: Tensor, actions_mean: Tensor, agent_ids: Tensor):
         outputs = self.representation(observation)
         critic_in = tf.concat([outputs['state'], actions_mean, agent_ids], axis=-1)
         critic_out = tf.expand_dims(self.critic_net(critic_in), -1)

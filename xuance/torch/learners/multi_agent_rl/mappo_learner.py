@@ -6,7 +6,7 @@ Implementation: Pytorch
 """
 import torch
 from torch import nn
-from typing import List
+from xuance.common import List
 from argparse import Namespace
 from operator import itemgetter
 from xuance.torch.learners.multi_agent_rl.ippo_learner import IPPO_Learner
@@ -27,7 +27,8 @@ class MAPPO_Clip_Learner(IPPO_Learner):
         # prepare training data
         sample_Tensor = self.build_training_data(sample=sample,
                                                  use_parameter_sharing=self.use_parameter_sharing,
-                                                 use_actions_mask=self.use_actions_mask)
+                                                 use_actions_mask=self.use_actions_mask,
+                                                 use_global_state=self.use_global_state)
         batch_size = sample_Tensor['batch_size']
         state = sample_Tensor['state']
         obs = sample_Tensor['obs']

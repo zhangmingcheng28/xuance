@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from argparse import Namespace
 from operator import itemgetter
-from typing import Optional, List
+from xuance.common import Optional, List
 from xuance.environment import DummyVecMultiAgentEnv
 from xuance.torch.utils import NormalizeFunctions, ActivationFunctions
 from xuance.torch.policies import REGISTRY_Policy
@@ -79,7 +79,13 @@ class MAPPO_Agents(IPPO_Agents):
             critic_input: The represented observations.
         """
         if self.use_global_state:
-            critic_input = state
+            if self.use_parameter_sharing:
+                key = self.model_keys[0]
+                bs = batch_size * self.n_agents
+                state_n = np.stack([state for _ in range(self.n_agents)], axis=1).reshape([bs, -1])
+                critic_input = {key: state_n}
+            else:
+                critic_input = {k: state for k in self.model_keys}
         else:
             if self.use_parameter_sharing:
                 key = self.model_keys[0]
@@ -223,7 +229,7 @@ class MAPPO_Agents(IPPO_Agents):
                 critic_input_array = np.concatenate([obs_dict[k].reshape(n_env, 1, -1) for k in self.agent_keys],
                                                     axis=1).reshape(n_env, -1)
                 if self.use_global_state:
-                    critic_input_array = np.concatenate([critic_input_array, state], axis=-1)
+                    critic_input_array = state.reshape([n_env, -1])
                 critic_input = {k: critic_input_array for k in self.agent_keys}
 
             rnn_hidden_critic_new, values_out = self.policy.get_values(observation=critic_input,
