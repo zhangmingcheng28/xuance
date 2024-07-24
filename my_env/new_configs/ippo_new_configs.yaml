@@ -8,14 +8,15 @@ fps: 15
 test_mode: False
 device: "cuda:0"
 
-agent: "MAPPO"  # The agent name.
-env_name: "mpe"  # The environment name.
-env_id: "simple_spread_v3"  # The environment id.
-continuous_action: True  # If to use continuous control.
-learner: "MAPPO_Clip_Learner"
-policy: "Gaussian_MAAC_Policy"  # The policy name.
-representation: "Basic_MLP"  # The representation name.
-vectorize: "SubprocVecMultiAgentEnv"  # The method to vectorize your environment such that can run in parallel.
+agent: "IPPO"
+env_name: "MyNewMultiAgentEnv"
+env_id: "new_env_id"
+continuous_action: False
+#learner: "MAPPO_Clip_Learner"
+learner: "IPPO_Learner"
+policy: "Categorical_MAAC_Policy"
+representation: "Basic_MLP"
+vectorize: "DummyVecMultiAgentEnv"
 
 # recurrent settings for Basic_RNN representation.
 use_rnn: False  # If to use recurrent neural network as representation. (The representation should be "Basic_RNN").
@@ -26,30 +27,30 @@ N_recurrent_layers: 1  # The number of recurrent layer.
 dropout: 0  # dropout should be a number in range [0, 1], the probability of an element being zeroed.
 normalize: "LayerNorm"  # Layer normalization.
 initialize: "orthogonal"  # Network initializer.
-gain: 0.01
+gain: 0.01  # Gain value for network initialization.
 
+# recurrent settings for Basic_RNN representation.
 representation_hidden_size: [64, ]  # A list of hidden units for each layer of Basic_MLP representation networks.
 actor_hidden_size: [64, ]  # A list of hidden units for each layer of actor network.
 critic_hidden_size: [64, ]  # A list of hidden units for each layer of critic network.
 activation: "relu"  # The activation function of each hidden layer.
-activation_action: "sigmoid"  # The activation function for the last layer of the actor.
+#activation_action: "sigmoid"  # The activation function for the last layer of the actor.
 use_parameter_sharing: True  # If to use parameter sharing for all agents' policies.
 use_actions_mask: False  # If to use actions mask for unavailable actions.
 
 seed: 1  # Random seed.
-parallels: 1  # The number of environments to run in parallel.
-buffer_size: 400  # Number of the transitions (use_rnn is False), or the episodes (use_rnn is True) in replay buffer.
-n_epochs: 1  # Number of epochs to train.
-n_minibatch: 1  # Number of minibatch to sample and train.  batch_size = buffer_size // n_minibatch.
+parallels: 128  # The number of environments to run in parallel.
+buffer_size: 3200  # Number of the transitions (use_rnn is False), or the episodes (use_rnn is True) in replay buffer.
+n_epochs: 10  # Number of epochs to train.
+n_minibatch: 1 # Number of minibatch to sample and train.  batch_size = buffer_size // n_minibatch.
 learning_rate: 0.0007  # Learning rate.
 weight_decay: 0  # The steps to decay the greedy epsilon.
 
 vf_coef: 0.5  # Coefficient factor for critic loss.
 ent_coef: 0.01  # Coefficient factor for entropy loss.
 target_kl: 0.25  # For MAPPO_KL learner.
-clip_range: 0.2  # Ratio clip range, for MAPPO_Clip learner.
-clip_type: 1  # Gradient clip for Mindspore: 0: ms.ops.clip_by_value; 1: ms.nn.ClipByNorm().
-gamma: 0.95  # Discount factor.
+clip_range: 0.2  # The clip range for ratio in MAPPO_Clip learner.
+gamma: 0.99  # Discount factor.
 
 # tricks
 use_linear_lr_decay: False  # If to use linear learning rate decay.
@@ -65,10 +66,11 @@ use_gae: True  # Use GAE trick.
 gae_lambda: 0.95  # The GAE lambda.
 use_grad_clip: True  # Gradient normalization.
 grad_clip_norm: 10.0  # The max norm of the gradient.
+clip_type: 1  # Gradient clip for Mindspore: 0: ms.ops.clip_by_value; 1: ms.nn.ClipByNorm().
 
-running_steps: 10000000  # The total running steps.
+running_steps: 5000000  # The total running steps.
 eval_interval: 100000  # The interval between every two trainings.
-test_episode: 5  # The episodes to test in each test period.
+test_episode: 1  # The episodes to test in each test period.  # note this parameter will also create individual environment to test
 
-log_dir: "./logs/mappo/"
-model_dir: "./models/mappo/"
+log_dir: "./logs/ippo/"
+model_dir: "./models/ippo/"

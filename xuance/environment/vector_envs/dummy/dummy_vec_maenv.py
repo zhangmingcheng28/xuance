@@ -1,7 +1,7 @@
 import numpy as np
 from xuance.common import space2shape
 from xuance.environment.vector_envs.vector_env import VecEnv, AlreadySteppingError, NotSteppingError
-
+from utilities import *
 
 class DummyVecMultiAgentEnv(VecEnv):
     """
@@ -74,6 +74,11 @@ class DummyVecMultiAgentEnv(VecEnv):
             self.buf_avail_actions[e] = self.buf_info[e]['avail_actions']
             self.buf_state[e] = self.buf_info[e]['state']
             if all(terminated_dict[e].values()) or truncated[e]:
+                # ---- self added code for visualization of the result after each successful evaluation ----
+                # only used when evaluation mode
+                # flight_data = [agent_obj.flight_data for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items()]
+                # save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[0].env._current_step)
+                # ---- end self added code for visualization of the result after each successful evaluation ----
                 obs_reset_dict, info_reset = self.envs[e].reset()
                 self.buf_info[e]["reset_obs"] = obs_reset_dict
                 self.buf_info[e]["reset_avail_actions"] = info_reset['avail_actions']

@@ -18,3 +18,4 @@ wandb/
 
 debug.py
 debug_marl.py
+*.gif

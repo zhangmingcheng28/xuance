@@ -1,21 +1,21 @@
 dl_toolbox: "torch"  # The deep learning toolbox. Choices: "torch", "mindspore", "tensorlayer"
-project_name: "XuanCe_Benchmark"
+project_name: "Hot_Spot"
 logger: "tensorboard"  # Choices: tensorboard, wandb.
 wandb_user_name: "your_user_name"
-render: True
+render: False
 render_mode: 'rgb_array' # Choices: 'human', 'rgb_array'.
-fps: 15
 test_mode: False
 device: "cuda:0"
 
 agent: "MAPPO"  # The agent name.
-env_name: "mpe"  # The environment name.
-env_id: "simple_spread_v3"  # The environment id.
-continuous_action: True  # If to use continuous control.
+env_name: "HS"  # The environment name.
+env_id: "HS_v1"  # The environment id.
+continuous_action: False  # If to use continuous control.
 learner: "MAPPO_Clip_Learner"
 policy: "Gaussian_MAAC_Policy"  # The policy name.
 representation: "Basic_MLP"  # The representation name.
 vectorize: "SubprocVecMultiAgentEnv"  # The method to vectorize your environment such that can run in parallel.
+runner: "MARL"  # The runner.
 
 # recurrent settings for Basic_RNN representation.
 use_rnn: False  # If to use recurrent neural network as representation. (The representation should be "Basic_RNN").
@@ -32,7 +32,7 @@ representation_hidden_size: [64, ]  # A list of hidden units for each layer of B
 actor_hidden_size: [64, ]  # A list of hidden units for each layer of actor network.
 critic_hidden_size: [64, ]  # A list of hidden units for each layer of critic network.
 activation: "relu"  # The activation function of each hidden layer.
-activation_action: "sigmoid"  # The activation function for the last layer of the actor.
+#activation_action: "sigmoid"  # The activation function for the last layer of the actor.
 use_parameter_sharing: True  # If to use parameter sharing for all agents' policies.
 use_actions_mask: False  # If to use actions mask for unavailable actions.
 
