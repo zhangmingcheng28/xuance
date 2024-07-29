@@ -21,7 +21,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
     def __init__(self, env_config):
         super(MyNewMultiAgentEnv, self).__init__()
         self.env_id = env_config.env_id
-        self.num_agents = 3
+        self.num_agents = 2
         self.agents = [f"agent_{i}" for i in range(self.num_agents)]
         self.state_space = Box(-np.inf, np.inf, shape=[25, ])
         self.observation_space = {agent: Box(-np.inf, np.inf, shape=[25, ]) for agent in self.agents}
@@ -115,7 +115,15 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         agent_ETA = [random.randint(0, self.num_agents) * 5 for a in range(self.num_agents)]
         for agent_idx in range(self.num_agents):
             keys = list(star_map_list.keys())  # Get a list of STAR-keys
-            random_star_key = random.choice(keys)  # Randomly choose a STAR-key
+            # random_star_key = random.choice(keys)  # Randomly choose a STAR-key
+            if agent_idx == 0:
+                random_star_key = keys[0]
+            elif agent_idx == 1:
+                random_star_key = keys[2]
+            elif agent_idx == 2:
+                random_star_key = keys[3]
+            else:
+                pass
             start_pos = np.array(star_map_list[random_star_key][0])
             end_pos = np.array(star_map_list[random_star_key][-1])
             agent_obj = Agent(agent_idx, start_pos, end_pos)
@@ -239,7 +247,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             conflicting_lines = check_line_circle_conflict(host_circle, self.boundaries)
             if len(conflicting_lines) > 0:
                 my_env_agent.bound_collision = True
-                print("{} conflict with boundaries".format(my_env_agent.agent_name))
+                print("{} conflict with boundaries at step {}".format(my_env_agent.agent_name, self._current_step))
 
 
             # # check whether crash into polygons
@@ -283,8 +291,8 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 d_c_to_f = np.linalg.norm(my_env_agent.pos - my_env_agent.destination)
                 # distance from initial point to final goal
                 d_i_to_f = np.linalg.norm(my_env_agent.ini_pos - my_env_agent.destination)
-                time_penaty = - ((d_i_to_c+d_c_to_f) / d_i_to_f)
-                step_reward[my_env_agent.agent_name] = time_penaty
+                dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
+                step_reward[my_env_agent.agent_name] = dist_penaty
                 done[my_env_agent.agent_name] = 0
             if my_env_agent.reach_target:
                 step_reward[my_env_agent.agent_name] = reaching_reward
@@ -405,7 +413,7 @@ def parse_args():
     parser = argparse.ArgumentParser("Example of XuanCe: IPPO for MPE.")
     parser.add_argument("--env-id", type=str, default="new_env_id")
     parser.add_argument("--test", type=int, default=0)
-    parser.add_argument("--benchmark", type=int, default=1)
+    parser.add_argument("--benchmark", type=int, default=0)
 
     return parser.parse_args()
 

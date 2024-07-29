@@ -293,7 +293,9 @@ class OnPolicyMARLAgents(MARLAgents):
         obs_dict = self.envs.buf_obs
         avail_actions = self.envs.buf_avail_actions if self.use_actions_mask else None
         state = self.envs.buf_state if self.use_global_state else None
-        for _ in tqdm(range(n_steps)):
+        for i in tqdm(range(n_steps)):
+            if i % 1000 == 0:
+                self.save_model("train_step_" + str(i)+"_model.pth")
             step_info = {}
             policy_out = self.action(obs_dict=obs_dict, state=state, avail_actions_dict=avail_actions, test_mode=False)
             actions_dict, log_pi_a_dict = policy_out['actions'], policy_out['log_pi']
