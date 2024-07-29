@@ -149,7 +149,8 @@ class MARL_OnPolicyBuffer(BaseBuffer):
             if data_key in ['advantages', 'returns']:
                 continue
             for agt_key in self.agent_keys:
-                self.data[data_key][agt_key][:, self.ptr] = step_data[data_key][agt_key]
+                # self.data[data_key][agt_key][:, self.ptr] = step_data[data_key][agt_key]
+                self.data[data_key][agt_key][:, self.ptr] = np.squeeze(step_data[data_key][agt_key])
         self.ptr = (self.ptr + 1) % self.n_size
         self.size = np.min([self.size + 1, self.n_size])
 

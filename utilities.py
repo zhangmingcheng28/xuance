@@ -490,3 +490,19 @@ def calculate_next_position(start_pos, target_pos, speed, time_step):
     new_position = start_pos + unit_direction_vector * distance_travelled
 
     return new_position
+
+
+class NormalizeData:
+    def __init__(self, x_min_max, y_min_max):
+        self.normalize_max = 1
+        self.normalize_min = -1
+        self.dis_min_x = x_min_max[0]
+        self.dis_max_x = x_min_max[1]
+        self.dis_min_y = y_min_max[0]
+        self.dis_max_y = y_min_max[1]
+
+    def nmlz_pos(self, pos_c):
+        x, y = pos_c[0], pos_c[1]
+        x_normalized = 2 * ((x - self.dis_min_x) / (self.dis_max_x - self.dis_min_x)) - 1
+        y_normalized = 2 * ((y - self.dis_min_y) / (self.dis_max_y - self.dis_min_y)) - 1
+        return np.array([x_normalized, y_normalized])

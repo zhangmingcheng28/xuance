@@ -10,7 +10,7 @@ from xuance.torch.agents import MAPPO_Agents
 def parse_args():
     parser = argparse.ArgumentParser("Example of XuanCe: MAPPO for MPE.")
     parser.add_argument("--env-id", type=str, default="simple_spread_v3")
-    parser.add_argument("--test", type=int, default=1)
+    parser.add_argument("--test", type=int, default=0)
     parser.add_argument("--benchmark", type=int, default=0)
 
     return parser.parse_args()

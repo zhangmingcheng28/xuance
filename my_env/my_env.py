@@ -10,6 +10,8 @@ from xuance.common import get_configs, recursive_dict_update
 from xuance.environment import make_envs, RawMultiAgentEnv, REGISTRY_MULTI_AGENT_ENV
 from xuance.torch.utils.operations import set_seed
 from xuance.torch.agents import IPPO_Agents
+from xuance.torch.agents import MAPPO_Agents
+from shapely.strtree import STRtree
 from cloud import cloud_agent
 from shapely.affinity import scale
 from shapely.geometry import Polygon, Point, LineString
@@ -21,12 +23,13 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         self.env_id = env_config.env_id
         self.num_agents = 3
         self.agents = [f"agent_{i}" for i in range(self.num_agents)]
-        self.state_space = Box(-np.inf, np.inf, shape=[6, ])
-        self.observation_space = {agent: Box(-np.inf, np.inf, shape=[6, ]) for agent in self.agents}
+        self.state_space = Box(-np.inf, np.inf, shape=[25, ])
+        self.observation_space = {agent: Box(-np.inf, np.inf, shape=[25, ]) for agent in self.agents}
         self.action_space = {agent: Discrete(n=5) for agent in self.agents}
         self.max_episode_steps = 200
         self._current_step = 0
         #  ------------ start of my own attributes -------------------
+        self.norm_tool = None
         self.prd_polygons = None
         self.boundaries = None
         self.potential_ref_line = None
@@ -83,6 +86,9 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         y_top = LineString([(0, 200), (200, 200)])
         y_bottom = LineString([(0, 0), (200, 0)])
         bounds = [x_left, x_right, y_top, y_bottom]
+        # add boundary lines to cloud
+        # initialize normalizer
+        self.norm_tool = NormalizeData([0, 200], [0, 200])
         # --------- end of bound config -------------
 
         # --------- potential reference line ---------
@@ -205,9 +211,8 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             cloud_agent.cloud_actual_cur_shape = scale(cloud_agent.pos.buffer(cloud_agent.radius), xfact=cloud_agent.x_fact, yfact=cloud_agent.y_fact)
 
     def obtain_reward(self):
-        crash_penalty = 10
+        crash_penalty = 100
         reaching_reward = 20
-        time_penaty = 1
         step_reward = {}
         done = {}
         for agent_idx, agent in enumerate(self.agents):  # loop through all agents, check if there is any crash case
@@ -237,12 +242,11 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 print("{} conflict with boundaries".format(my_env_agent.agent_name))
 
 
-            # check whether crash into polygons
-            conflicting_polygons = polygons_own_circle_conflict(host_circle, self.prd_polygons)
-            if len(conflicting_polygons) > 0:
-                my_env_agent.prd_collision = True
-                print("{} conflict with PRD".format(my_env_agent.agent_name))
-
+            # # check whether crash into polygons
+            # conflicting_polygons = polygons_own_circle_conflict(host_circle, self.prd_polygons)
+            # if len(conflicting_polygons) > 0:
+            #     my_env_agent.prd_collision = True
+            #     print("{} conflict with PRD".format(my_env_agent.agent_name))
 
             # check whether crash into clouds
             for clound in self.cloud_config:
@@ -273,12 +277,19 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 # done[my_env_agent.agent_name] = 0
             else:
                 # a normal step taken
-                step_reward[my_env_agent.agent_name] = - time_penaty
+                # distance from initial point to current aircraft position
+                d_i_to_c = np.linalg.norm(my_env_agent.ini_pos - my_env_agent.pos)
+                # distance from current aircraft position to final goal
+                d_c_to_f = np.linalg.norm(my_env_agent.pos - my_env_agent.destination)
+                # distance from initial point to final goal
+                d_i_to_f = np.linalg.norm(my_env_agent.ini_pos - my_env_agent.destination)
+                time_penaty = - ((d_i_to_c+d_c_to_f) / d_i_to_f)
+                step_reward[my_env_agent.agent_name] = time_penaty
                 done[my_env_agent.agent_name] = 0
             if my_env_agent.reach_target:
                 step_reward[my_env_agent.agent_name] = reaching_reward
                 done[my_env_agent.agent_name] = 1
-                agent.activation_flag = 0  # when drone reached no need to do any changes to the drone
+                my_env_agent.activation_flag = 0  # when drone reached no need to do any changes to the drone
 
         return step_reward, done
 
@@ -286,12 +297,109 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         observation = {}
         for agent_name in my_agents:
             my_agent_data = self.my_agent_self_data[agent_name]
-            observation[agent_name] = np.array([my_agent_data.pos[0], my_agent_data.pos[1], my_agent_data.heading[0],
-                                                my_agent_data.activation_flag,
-                                                my_agent_data.destination[0], my_agent_data.destination[1]])
+
+            # look for nearest neighbour
+            # region  ---- start of looking for nearest neighbor ----
+            nearest_neigh_name = None
+            shortest_neigh_dist = math.inf
+            for other_agent_name in my_agents:
+                if other_agent_name == agent_name:
+                    continue # same agent we don't consider
+                other_agent_data = self.my_agent_self_data[other_agent_name]
+                diff_dist_vec = my_agent_data.pos - other_agent_data.pos  # host pos vector - intruder pos vector
+                euclidean_dist_diff = np.linalg.norm(diff_dist_vec)
+                if euclidean_dist_diff < shortest_neigh_dist:
+                    shortest_neigh_dist = euclidean_dist_diff
+                    nearest_neigh_name = other_agent_name
+            # endregion ---- end of start of looking for nearest neighbor ----
+
+            # region  ---- start of radar creation (only detect surrounding obstacles) ----
+            drone_ctr = Point(my_agent_data.pos)
+            # use centre point as start point
+            st_points = {degree: drone_ctr for degree in range(0, 360, 20)}
+            radar_dist = my_agent_data.detectionRange
+            distances = {}
+            radar_info = {}
+            ed_points = {}
+            line_collection = []  # a collection of all 20 radar's prob
+            for point_deg, point_pos in st_points.items():
+                # Create a line segment from the circle's center
+                end_x = drone_ctr.x + radar_dist * math.cos(math.radians(point_deg))
+                end_y = drone_ctr.y + radar_dist * math.sin(math.radians(point_deg))
+                end_point = Point(end_x, end_y)
+
+                # current radar prob heading  # same as point-deg???
+                cur_prob_heading = np.arctan2([end_y-my_agent_data.pos[1]], [end_x-my_agent_data.pos[0]])
+
+                # Create the LineString from the start point to the end point
+                cur_host_line = LineString([point_pos, end_point])
+                line_collection.append(cur_host_line)
+
+                # initialize minimum intersection point with end_point
+                ed_points[point_deg] = end_point
+                min_intersection_pt = end_point
+                sensed_shortest_dist = cur_host_line.length
+                distances[point_deg] = sensed_shortest_dist
+
+                # check if line intersect with any boundaries
+                for i, line in enumerate(self.boundaries):
+                    if cur_host_line.intersects(line):
+                        intersection_point = cur_host_line.intersection(line)
+                        dist_to_intersection = LineString([point_pos, intersection_point]).length
+                        if dist_to_intersection < sensed_shortest_dist:
+                            # update global minimum end point and distance
+                            ed_points[point_deg] = intersection_point
+                            min_intersection_pt = intersection_point
+                            sensed_shortest_dist = dist_to_intersection
+                            distances[point_deg] = sensed_shortest_dist
+
+                # check if line intersect with any clouds
+                # initialize cloud context nearest nearest distance and point
+                cloud_nearest_intersection_point = None
+                cloud_nearest_distance = math.inf
+                for cloud_obj in self.cloud_config:
+                    clound_boundary = cloud_obj.cloud_actual_cur_shape.boundary
+                    if cur_host_line.intersects(clound_boundary):
+                        cloud_intersection_points = cur_host_line.intersection(clound_boundary)
+                        if cloud_intersection_points.geom_type == 'MultiPoint':
+                            for point in cloud_intersection_points.geoms:
+                                distance = LineString([point_pos, point]).length
+                                if distance < cloud_nearest_distance:
+                                    cloud_nearest_distance = distance
+                                    cloud_nearest_intersection_point = point
+                        elif cloud_intersection_points.geom_type == 'Point':
+                            distance = LineString([point_pos, cloud_intersection_points]).length
+                            if distance < cloud_nearest_distance:
+                                cloud_nearest_distance = distance
+                                cloud_nearest_intersection_point = cloud_intersection_points
+
+                # now compare the nearest distance in cloud context with the nearest distance in previous shortest
+                if cloud_nearest_distance < sensed_shortest_dist:
+                    # update global minimum end point and distance
+                    ed_points[point_deg] = cloud_nearest_intersection_point
+                    min_intersection_pt = cloud_nearest_intersection_point
+                    sensed_shortest_dist = cloud_nearest_distance
+                    distances[point_deg] = sensed_shortest_dist
+
+                # all condition have check new we fill in the radar data
+                radar_info[point_deg] = [min_intersection_pt, sensed_shortest_dist]
+            # endregion ---- end of radar creation (only detect surrounding obstacles) ----
+
+            norm_pos = self.norm_tool.nmlz_pos(my_agent_data.pos)
+            norm_destination = self.norm_tool.nmlz_pos(my_agent_data.destination)
+            norm_shortest_neigh_dist = shortest_neigh_dist / my_agent_data.detectionRange
+
+            # radar_distance_list = [value for value in distances.values()]
+            radar_distance_list = [value / my_agent_data.detectionRange for value in distances.values()]  # with normalization
+
+            norm_obs_list = [norm_pos[0], norm_pos[1], my_agent_data.heading[0], my_agent_data.activation_flag, norm_shortest_neigh_dist, norm_destination[0], norm_destination[1]]
+            combine_obs = norm_obs_list + radar_distance_list
+            observation[agent_name] = np.array([combine_obs])
+
+            # observation[agent_name] = np.array([my_agent_data.pos[0], my_agent_data.pos[1], my_agent_data.heading[0],
+            #                                     my_agent_data.activation_flag,
+            #                                     my_agent_data.destination[0], my_agent_data.destination[1]])
         return observation
-
-
 
 def parse_args():
     parser = argparse.ArgumentParser("Example of XuanCe: IPPO for MPE.")
@@ -304,14 +412,20 @@ def parse_args():
 
 if __name__ == "__main__":
     parser = parse_args()
-    configs_dict = get_configs(file_dir="new_configs/ippo_new_configs.yaml")
+    configs_dict = get_configs(file_dir="new_configs/my_env_own_config.yaml")
     configs_dict = recursive_dict_update(configs_dict, parser.__dict__)
     configs = argparse.Namespace(**configs_dict)
 
     REGISTRY_MULTI_AGENT_ENV[configs.env_name] = MyNewMultiAgentEnv
     set_seed(configs.seed)  # Set the random seed.
     envs = make_envs(configs)  # Make the environment.
-    Agents = IPPO_Agents(config=configs, envs=envs)  # Create the Independent PPO agents.
+    if configs.learner == 'IPPO_Learner':
+        Agents = IPPO_Agents(config=configs, envs=envs)  # Create the Independent PPO agents.
+    elif configs.learner == 'MAPPO_Clip_Learner':
+        Agents = MAPPO_Agents(config=configs, envs=envs)  # Create the Independent PPO agents.
+    else:
+        Agents = None
+        print('No valid learner parameters')
 
     train_information = {"Deep learning toolbox": configs.dl_toolbox,
                          "Calculating device": configs.device,
@@ -320,7 +434,9 @@ if __name__ == "__main__":
                          "Scenario": configs.env_id}
     for k, v in train_information.items():  # Print the training information.
         print(f"{k}: {v}")
+
     configs.benchmark = False
+
     if configs.benchmark:  # training while saving benchmark
         def env_fn():  # Define an environment function for test method.
             configs_test = deepcopy(configs)
@@ -351,7 +467,7 @@ if __name__ == "__main__":
         # end benchmarking
         print("Best Model Score: %.2f, std=%.2f" % (best_scores_info["mean"], best_scores_info["std"]))
     else:  # normal training
-        configs.test = 1
+        # configs.test = 1
         if configs.test:
             def env_fn():
                 configs.parallels = configs.test_episode

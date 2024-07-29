@@ -217,8 +217,8 @@ class LearnerMAS(ABC):
                 if "seed_" not in f:
                     file_names.remove(f)
             file_names.sort()
-            # path = os.path.join(path, file_names[-1])
-            path = os.path.join(path, file_names[0])
+            path = os.path.join(path, file_names[-1])
+            # path = os.path.join(path, file_names[0])
 
         model_names = os.listdir(path)
         if os.path.exists(path + "/obs_rms.npy"):
