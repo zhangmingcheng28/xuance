@@ -307,6 +307,7 @@ class OnPolicyMARLAgents(MARLAgents):
             if self.memory.full:
                 for i in range(self.n_envs):
                     if all(terminated_dict[i].values()):
+                    # if any(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
                         _, value_next = self.values_next(i_env=i, obs_dict=next_obs_dict[i], state=state[i])
@@ -319,7 +320,9 @@ class OnPolicyMARLAgents(MARLAgents):
 
             for i in range(self.n_envs):
                 if all(terminated_dict[i].values()) or truncated[i]:
+                # if any(terminated_dict[i].values()) or truncated[i]:
                     if all(terminated_dict[i].values()):
+                    # if any(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
                         _, value_next = self.values_next(i_env=i, obs_dict=obs_dict[i], state=state[i])

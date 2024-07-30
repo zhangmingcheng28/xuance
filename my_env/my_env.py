@@ -219,22 +219,26 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             cloud_agent.cloud_actual_cur_shape = scale(cloud_agent.pos.buffer(cloud_agent.radius), xfact=cloud_agent.x_fact, yfact=cloud_agent.y_fact)
 
     def obtain_reward(self):
-        crash_penalty = 100
-        reaching_reward = 20
+        # crash_penalty = 100
+        crash_penalty = 200
+        reaching_reward = 200
+        wp_reach_reward = 20  # only appear once when agent first reach
         step_reward = {}
         done = {}
         for agent_idx, agent in enumerate(self.agents):  # loop through all agents, check if there is any crash case
             my_env_agent = self.my_agent_self_data[agent]
+            step_reward[my_env_agent.agent_name] = 0  # initialize step reward for each agent
             host_pass_line = LineString([my_env_agent.pre_pos, my_env_agent.pos])
             host_passed_volume = host_pass_line.buffer(my_env_agent.NMAC_radius, cap_style=1)
             host_circle = Point(my_env_agent.pos[0], my_env_agent.pos[1]).buffer(my_env_agent.NMAC_radius, cap_style='round')
             target_circle = Point(my_env_agent.destination[0], my_env_agent.destination[1]).buffer(my_env_agent.destination_radius, cap_style='round')
-            if len(my_env_agent.waypoints)>0:
+            if len(my_env_agent.waypoints) > 0:
                 wp_circle = Point(my_env_agent.waypoints[0][0], my_env_agent.waypoints[0][1]).buffer(my_env_agent.destination_radius, cap_style='round')
 
                 # check if host drone has reached its waypoints
                 if host_circle.intersects(wp_circle) or host_circle.within(wp_circle) or host_circle.overlaps(wp_circle):
                     print("{} reaches its waypoint".format(my_env_agent.agent_name))
+                    step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + wp_reach_reward
                     del my_env_agent.waypoints[0]
 
             # check of host drone reaches the goal
@@ -291,14 +295,15 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 d_c_to_f = np.linalg.norm(my_env_agent.pos - my_env_agent.destination)
                 # distance from initial point to final goal
                 d_i_to_f = np.linalg.norm(my_env_agent.ini_pos - my_env_agent.destination)
-                dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
-                step_reward[my_env_agent.agent_name] = dist_penaty
+                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
+                dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f))**3
+                step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty
                 done[my_env_agent.agent_name] = 0
+
             if my_env_agent.reach_target:
                 step_reward[my_env_agent.agent_name] = reaching_reward
                 done[my_env_agent.agent_name] = 1
                 my_env_agent.activation_flag = 0  # when drone reached no need to do any changes to the drone
-
         return step_reward, done
 
     def get_cur_obs(self, my_agents):

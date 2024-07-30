@@ -74,6 +74,7 @@ class DummyVecMultiAgentEnv(VecEnv):
             self.buf_avail_actions[e] = self.buf_info[e]['avail_actions']
             self.buf_state[e] = self.buf_info[e]['state']
             if all(terminated_dict[e].values()) or truncated[e]:
+            # if any(terminated_dict[e].values()) or truncated[e]:
                 # ---- self added code for visualization of the result after each successful evaluation ----
                 # only used when evaluation mode
                 # flight_data = [agent_obj.flight_data for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items()]
