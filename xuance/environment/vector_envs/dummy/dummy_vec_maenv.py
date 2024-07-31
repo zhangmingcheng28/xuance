@@ -68,24 +68,52 @@ class DummyVecMultiAgentEnv(VecEnv):
         rew_dict = [{} for _ in self.envs]
         terminated_dict = [{} for _ in self.envs]
         truncated = [False for _ in self.envs]
+        # ------------------------------------ start of self-add for stats accumulation ---------------------
+        test_episode_data = [{} for _ in self.envs]
+        # ------------------------------------ end of self-add for stats accumulation ---------------------
         for e in range(self.num_envs):
             action_n = self.actions[e]
             self.buf_obs[e], rew_dict[e], terminated_dict[e], truncated[e], self.buf_info[e] = self.envs[e].step(action_n)
             self.buf_avail_actions[e] = self.buf_info[e]['avail_actions']
             self.buf_state[e] = self.buf_info[e]['state']
-            if all(terminated_dict[e].values()) or truncated[e]:
-            # if any(terminated_dict[e].values()) or truncated[e]:
+            # if all(terminated_dict[e].values()) or truncated[e]:
+            if any(terminated_dict[e].values()) or truncated[e]:
                 # ---- self added code for visualization of the result after each successful evaluation ----
                 # only used when evaluation mode
-                # flight_data = [agent_obj.flight_data for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items()]
+                flight_data = [agent_obj.flight_data for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items()]
                 # save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[0].env._current_step)
+                test_episode_data[e]['flight_data'] = flight_data
                 # ---- end self added code for visualization of the result after each successful evaluation ----
+
+                # ------------------------------------ start of self-add for stats accumulation ---------------------
+                # # loop through each test scenario for stats, only used for any(terminated_dict[e].values()) case
+                cloud_conflict_count = 0
+                drone_collision_count = 0
+                if -200 in rew_dict[e].values():
+                    test_episode_data[e]['episode_collision'] = 1
+                elif 200 in rew_dict[e].values():
+                    test_episode_data[e]['episode_any_AC_reach'] = 1
+                elif truncated[e] and -200 not in rew_dict[e].values() and 200 not in rew_dict[e].values():
+                    test_episode_data[e]['episode_all_stray'] = 1
+                else:
+                    print("None of the situation exist")
+
+                for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items():
+                    if agent_obj.cloud_collision:
+                        cloud_conflict_count = cloud_conflict_count + 1
+                    elif agent_obj.drone_collision:
+                        drone_collision_count = drone_collision_count + 1
+                    else:
+                        pass
+                test_episode_data[e]['sorties_conflict_detail'] = {'episode_cloud_conflict': cloud_conflict_count,
+                                                                   'episode_drone_conflict': drone_collision_count}
+                # ------------------------------------ end of self-add for stats accumulation ---------------------
                 obs_reset_dict, info_reset = self.envs[e].reset()
                 self.buf_info[e]["reset_obs"] = obs_reset_dict
                 self.buf_info[e]["reset_avail_actions"] = info_reset['avail_actions']
                 self.buf_info[e]["reset_state"] = info_reset['state']
         self.waiting = False
-        return self.buf_obs.copy(), rew_dict, terminated_dict, truncated, self.buf_info.copy()
+        return self.buf_obs.copy(), rew_dict, terminated_dict, truncated, self.buf_info.copy(), test_episode_data
 
     def close_extras(self):
         """Closes the communication with subprocesses and joins the subprocesses."""

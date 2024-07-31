@@ -91,8 +91,9 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         self.norm_tool = NormalizeData([0, 200], [0, 200])
         # --------- end of bound config -------------
 
-        # --------- potential reference line ---------
-        line_w1 = LineString([(0, 150), (75, 75), (86.90, 0)])
+        # --------- potential reference line (only for display not involved in training)---------
+        # line_w1 = LineString([(0, 150), (75, 75), (86.90, 0)])
+        line_w1 = LineString([(0, 150), (60, 75), (86.90, 0)])
         line_w2 = LineString([(43.75, 200), (75, 75), (86.9, 0)])
         # line_0 = LineString([(110, 12), (185, 160)])
         line_w3 = LineString([(103.96, 0), (205.77, 200)])
@@ -107,7 +108,8 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         self.cloud_movement = [[cloudAgent.pos for cloudAgent in cloud_config]]
 
         star_map_list = {
-            'star1': [(7.071, 142.929), (75, 75), (85.333, 9.876)],
+            # 'star1': [(7.071, 142.929), (75, 75), (85.333, 9.876)],
+            'star1': [(7.071, 142.929), (60, 75), (85.333, 9.876)],
             'star2': [(46.176, 190.299), (75, 75), (85.334, 9.876)],
             'star3': [(108.497, 8.911), (201.233, 191.089)],
             'star4': [(139.538, 9.936), (160.002, 190.064)]
@@ -295,8 +297,8 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 d_c_to_f = np.linalg.norm(my_env_agent.pos - my_env_agent.destination)
                 # distance from initial point to final goal
                 d_i_to_f = np.linalg.norm(my_env_agent.ini_pos - my_env_agent.destination)
-                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
-                dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f))**3
+                dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
+                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f))**3
                 step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty
                 done[my_env_agent.agent_name] = 0
 
@@ -417,7 +419,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
 def parse_args():
     parser = argparse.ArgumentParser("Example of XuanCe: IPPO for MPE.")
     parser.add_argument("--env-id", type=str, default="new_env_id")
-    parser.add_argument("--test", type=int, default=0)
+    parser.add_argument("--test", type=int, default=1)
     parser.add_argument("--benchmark", type=int, default=0)
 
     return parser.parse_args()

@@ -306,8 +306,8 @@ class OnPolicyMARLAgents(MARLAgents):
                                   terminated_dict, info, **{'state': state})
             if self.memory.full:
                 for i in range(self.n_envs):
-                    if all(terminated_dict[i].values()):
-                    # if any(terminated_dict[i].values()):
+                    # if all(terminated_dict[i].values()):
+                    if any(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
                         _, value_next = self.values_next(i_env=i, obs_dict=next_obs_dict[i], state=state[i])
@@ -319,10 +319,10 @@ class OnPolicyMARLAgents(MARLAgents):
             state = self.envs.buf_state if self.use_global_state else None
 
             for i in range(self.n_envs):
-                if all(terminated_dict[i].values()) or truncated[i]:
-                # if any(terminated_dict[i].values()) or truncated[i]:
-                    if all(terminated_dict[i].values()):
-                    # if any(terminated_dict[i].values()):
+                # if all(terminated_dict[i].values()) or truncated[i]:
+                if any(terminated_dict[i].values()) or truncated[i]:
+                #     if all(terminated_dict[i].values()):
+                    if any(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
                         _, value_next = self.values_next(i_env=i, obs_dict=obs_dict[i], state=state[i])
@@ -376,6 +376,15 @@ class OnPolicyMARLAgents(MARLAgents):
                 self.memory.clear_episodes()
         rnn_hidden_actor, rnn_hidden_critic = self.init_rnn_hidden(num_envs)
 
+        # ------------------------------------ start of self-add for stats accumulation ---------------------
+        flight_data_at_end_of_each_evaluation = [[] for _ in range(num_envs)]
+        sorties_conflict_detail_at_each_evaluation = [[] for _ in range(num_envs)]
+        entire_evaluation_process_sorties_cloud_conflict = 0
+        entire_evaluation_process_sorties_self_conflict = 0
+        entire_evaluation_process_reach_count = 0
+        entire_evaluation_process_conflict_count = 0
+        entire_evaluation_process_stray_count = 0
+        # ------------------------------------ end of self-add for stats accumulation ---------------------
         while episode_count < n_episodes:
             step_info = {}
             policy_out = self.action(obs_dict=obs_dict, state=state, avail_actions_dict=avail_actions,
@@ -384,7 +393,7 @@ class OnPolicyMARLAgents(MARLAgents):
             rnn_hidden_actor, rnn_hidden_critic = policy_out['rnn_hidden_actor'], policy_out['rnn_hidden_critic']
             actions_dict, log_pi_a_dict = policy_out['actions'], policy_out['log_pi']
             values_dict = policy_out['values']
-            next_obs_dict, rewards_dict, terminated_dict, truncated, info = envs.step(actions_dict)
+            next_obs_dict, rewards_dict, terminated_dict, truncated, info, test_episode_data = envs.step(actions_dict)
             next_avail_actions = envs.buf_avail_actions if self.use_actions_mask else None
             if test_mode:
                 if self.config.render_mode == "rgb_array" and self.render:
@@ -398,10 +407,26 @@ class OnPolicyMARLAgents(MARLAgents):
             state = envs.buf_state if self.use_global_state else None
 
             for i in range(num_envs):
-                if all(terminated_dict[i].values()) or truncated[i]:
+                # if all(terminated_dict[i].values()) or truncated[i]:
+                if any(terminated_dict[i].values()) or truncated[i]:  # if i len(flight_data_at_end_of_each_evaluation[i]) > 0 we continue
+                    if len(flight_data_at_end_of_each_evaluation[i]) > 0:
+                        # there is duplicate environment numbers, I not sure why, possible due to xuance code problem.
+                        continue
                     episode_count += 1
                     episode_score = float(np.mean(itemgetter(*self.agent_keys)(info[i]["episode_score"])))
                     scores.append(episode_score)
+                    # load flight data to dict
+                    flight_data_at_end_of_each_evaluation[i] = test_episode_data[i]['flight_data']
+                    sorties_conflict_detail_at_each_evaluation[i] = test_episode_data[i]['sorties_conflict_detail']
+                    if 'episode_collision' in test_episode_data[i]:
+                        entire_evaluation_process_conflict_count = entire_evaluation_process_conflict_count + 1
+                    elif 'episode_any_AC_reach' in test_episode_data[i]:
+                        entire_evaluation_process_reach_count = entire_evaluation_process_reach_count + 1
+                    elif 'episode_all_stray' in test_episode_data[i]:
+                        entire_evaluation_process_stray_count = entire_evaluation_process_stray_count + 1
+                    else:
+                        pass
+
                     if test_mode:
                         if self.use_rnn:
                             rnn_hidden_actor, _ = self.init_hidden_item(i, rnn_hidden_actor)
@@ -449,9 +474,29 @@ class OnPolicyMARLAgents(MARLAgents):
                 "Test-Results/Episode-Rewards/Mean-Score": np.mean(scores),
                 "Test-Results/Episode-Rewards/Std-Score": np.std(scores),
             }
+            # ------------------------------------ start of self-add for stats accumulation ---------------------
+            for each_episode_sorties_conflict in sorties_conflict_detail_at_each_evaluation:
+                if each_episode_sorties_conflict['episode_cloud_conflict'] > 0:
+                    entire_evaluation_process_sorties_cloud_conflict = \
+                        entire_evaluation_process_sorties_cloud_conflict + \
+                        each_episode_sorties_conflict['episode_cloud_conflict']
+                elif each_episode_sorties_conflict['episode_drone_conflict'] > 0:
+                    entire_evaluation_process_sorties_self_conflict = \
+                        entire_evaluation_process_sorties_self_conflict + \
+                        each_episode_sorties_conflict['episode_drone_conflict']
+            print('Total conflict episode detected is {}. \n '
+                  'Total number of episode have any drone reaches it goal is {}. \n '
+                  'Total number of stray episode occurs is {}.\n '
+                  'Total number of sorties conflict with cloud is {}.\n '
+                  'Total number of sorties conflict with each other is {}'.format(
+                entire_evaluation_process_conflict_count, entire_evaluation_process_reach_count,
+                entire_evaluation_process_stray_count, entire_evaluation_process_sorties_cloud_conflict,
+                entire_evaluation_process_sorties_self_conflict))
+            # ------------------------------------ end of self-add for stats accumulation ---------------------
             self.log_infos(test_info, self.current_step)
             if env_fn is not None:
                 envs.close()
+
         return scores
 
     def test(self, env_fn, n_episodes):
