@@ -300,7 +300,7 @@ class OnPolicyMARLAgents(MARLAgents):
             policy_out = self.action(obs_dict=obs_dict, state=state, avail_actions_dict=avail_actions, test_mode=False)
             actions_dict, log_pi_a_dict = policy_out['actions'], policy_out['log_pi']
             values_dict = policy_out['values']
-            next_obs_dict, rewards_dict, terminated_dict, truncated, info = self.envs.step(actions_dict)
+            next_obs_dict, rewards_dict, terminated_dict, truncated, info, _ = self.envs.step(actions_dict)
             next_avail_actions = self.envs.buf_avail_actions if self.use_actions_mask else None
             self.store_experience(obs_dict, avail_actions, actions_dict, log_pi_a_dict, rewards_dict, values_dict,
                                   terminated_dict, info, **{'state': state})
@@ -413,7 +413,7 @@ class OnPolicyMARLAgents(MARLAgents):
                         # there is duplicate environment numbers, I not sure why, possible due to xuance code problem.
                         continue
                     episode_count += 1
-                    episode_score = float(np.mean(itemgetter(*self.agent_keys)(info[i]["episode_score"])))
+                    episode_score = float(np.mean(itemgetter(*self.agent_keys)(info[i]["episode_score"])))  # get the mean value of the accumulated score among all agents in current episode.
                     scores.append(episode_score)
                     # load flight data to dict
                     flight_data_at_end_of_each_evaluation[i] = test_episode_data[i]['flight_data']
@@ -484,10 +484,10 @@ class OnPolicyMARLAgents(MARLAgents):
                     entire_evaluation_process_sorties_self_conflict = \
                         entire_evaluation_process_sorties_self_conflict + \
                         each_episode_sorties_conflict['episode_drone_conflict']
-            print('Total conflict episode detected is {}. \n '
-                  'Total number of episode have any drone reaches it goal is {}. \n '
-                  'Total number of stray episode occurs is {}.\n '
-                  'Total number of sorties conflict with cloud is {}.\n '
+            print('Total conflict episode detected is {}. \n'
+                  'Total number of episode have any drone reaches it goal is {}. \n'
+                  'Total number of stray episode occurs is {}.\n'
+                  'Total number of sorties conflict with cloud is {}.\n'
                   'Total number of sorties conflict with each other is {}'.format(
                 entire_evaluation_process_conflict_count, entire_evaluation_process_reach_count,
                 entire_evaluation_process_stray_count, entire_evaluation_process_sorties_cloud_conflict,

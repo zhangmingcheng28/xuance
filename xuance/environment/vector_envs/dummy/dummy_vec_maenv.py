@@ -81,7 +81,7 @@ class DummyVecMultiAgentEnv(VecEnv):
                 # ---- self added code for visualization of the result after each successful evaluation ----
                 # only used when evaluation mode
                 flight_data = [agent_obj.flight_data for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items()]
-                # save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[0].env._current_step)
+                save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[0].env._current_step)
                 test_episode_data[e]['flight_data'] = flight_data
                 # ---- end self added code for visualization of the result after each successful evaluation ----
 

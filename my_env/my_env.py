@@ -109,9 +109,9 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
 
         star_map_list = {
             # 'star1': [(7.071, 142.929), (75, 75), (85.333, 9.876)],
-            'star1': [(7.071, 142.929), (60, 75), (85.333, 9.876)],
-            'star2': [(46.176, 190.299), (75, 75), (85.334, 9.876)],
-            'star3': [(108.497, 8.911), (201.233, 191.089)],
+            'star1': [(7.071, 142.929), (60, 75), (79.73, 20)],
+            'star2': [(46.176, 190.299), (75, 75), (85.334, 15)],
+            'star3': [(108.497, 8.911), (185, 160)],
             'star4': [(139.538, 9.936), (160.002, 190.064)]
         }
         agent_ETA = [random.randint(0, self.num_agents) * 5 for a in range(self.num_agents)]
@@ -167,7 +167,8 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             my_env_agent.pre_heading = deepcopy(my_env_agent.heading)
             # --------- end of fill attributes are filled --------- #
             # aircraft will only activate if its eta equals to the current episode step.
-            if my_env_agent.eta == self._current_step-1:  # we need to -1, as the simulation step starts from 1.
+            # if my_env_agent.eta == self._current_step-1:  # we need to -1, as the simulation step starts from 1. So after eta, agent always active
+            if (my_env_agent.eta == self._current_step-1) and (my_env_agent.reach_target == False): # The activation flag will only change when agent does not reach their goal.
                 my_env_agent.activation_flag = 1
             if my_env_agent.activation_flag == 1:
                 # ensure we update the previous heading, position, action
@@ -224,9 +225,11 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         # crash_penalty = 100
         crash_penalty = 200
         reaching_reward = 200
-        wp_reach_reward = 20  # only appear once when agent first reach
+        wp_reach_reward = 0  # only appear once when agent first reach
         step_reward = {}
         done = {}
+        reach_goal = [0 for _ in range(len(self.agents))]
+        collision_indication = [0 for _ in range(len(self.agents))]
         for agent_idx, agent in enumerate(self.agents):  # loop through all agents, check if there is any crash case
             my_env_agent = self.my_agent_self_data[agent]
             step_reward[my_env_agent.agent_name] = 0  # initialize step reward for each agent
@@ -246,7 +249,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             # check of host drone reaches the goal
             if host_circle.intersects(target_circle) or host_circle.within(target_circle) or host_circle.overlaps(target_circle):
                 my_env_agent.reach_target = True
-                print("{} reaches its goal".format(my_env_agent.agent_name))
+                print("{} reaches its goal at step {}".format(my_env_agent.agent_name, self._current_step))
 
 
             # check whether crash into boundaries
@@ -287,8 +290,8 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             # assign reward and done for current agent
             if my_env_agent.drone_collision or my_env_agent.cloud_collision or my_env_agent.prd_collision or my_env_agent.bound_collision:
                 step_reward[my_env_agent.agent_name] = - crash_penalty
-                done[my_env_agent.agent_name] = 1
-                # done[my_env_agent.agent_name] = 0
+                collision_indication[agent_idx] = 1
+                # done[my_env_agent.agent_name] = 1
             else:
                 # a normal step taken
                 # distance from initial point to current aircraft position
@@ -297,15 +300,42 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 d_c_to_f = np.linalg.norm(my_env_agent.pos - my_env_agent.destination)
                 # distance from initial point to final goal
                 d_i_to_f = np.linalg.norm(my_env_agent.ini_pos - my_env_agent.destination)
-                dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
+                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
+                dist_penaty = - (d_c_to_f / d_i_to_f) * 1.6
                 # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f))**3
-                step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty
+
+                # ----------- start of prob penalty -------------------
+                prob_penalty = 0
+                # prob_dist_list = [value[-1] for key, value in my_env_agent.probe_line.items()]
+                # if min(prob_dist_list) >= 30:
+                #     prob_penalty = 0
+                # else:
+                #     m = (0 - 1) / (30 - my_env_agent.NMAC_radius)
+                #     prob_penalty = m*min(prob_dist_list)
+                # ---------- end of prob penalty ------------------------
+
+                step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty + prob_penalty
                 done[my_env_agent.agent_name] = 0
 
-            if my_env_agent.reach_target:
+            # if my_env_agent.reach_target:  # load goal reaching score only once.
+            if my_env_agent.reach_target and my_env_agent.activation_flag == 1:  # load goal reaching score only once.
                 step_reward[my_env_agent.agent_name] = reaching_reward
-                done[my_env_agent.agent_name] = 1
+                reach_goal[agent_idx] = 1
+                # done[my_env_agent.agent_name] = 1
                 my_env_agent.activation_flag = 0  # when drone reached no need to do any changes to the drone
+
+        # use to fill the done indicator, possible to override the previous done (for normal step)
+        if any(collision_indication):
+            for agent_idx, agent in enumerate(self.agents):
+                my_env_agent = self.my_agent_self_data[agent]
+                done[my_env_agent.agent_name] = 1
+        elif all(reach_goal):
+            for agent_idx, agent in enumerate(self.agents):
+                my_env_agent = self.my_agent_self_data[agent]
+                done[my_env_agent.agent_name] = 1
+        else:
+            pass
+
         return step_reward, done
 
     def get_cur_obs(self, my_agents):
@@ -399,6 +429,9 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 # all condition have check new we fill in the radar data
                 radar_info[point_deg] = [min_intersection_pt, sensed_shortest_dist]
             # endregion ---- end of radar creation (only detect surrounding obstacles) ----
+
+            # load radar_info to current agent
+            my_agent_data.probe_line = radar_info
 
             norm_pos = self.norm_tool.nmlz_pos(my_agent_data.pos)
             norm_destination = self.norm_tool.nmlz_pos(my_agent_data.destination)

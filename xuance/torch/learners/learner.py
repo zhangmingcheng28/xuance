@@ -219,7 +219,7 @@ class LearnerMAS(ABC):
             file_names.sort()
             # path = os.path.join(path, file_names[-1])
             # path = os.path.join(path, 'seed_1_2024_0729_211550')
-            path = os.path.join(path, 'seed_1_2024_0730_203430')
+            path = os.path.join(path, 'seed_1_2024_0802_111243')
             # path = os.path.join(path, file_names[0])
 
         model_names = os.listdir(path)
@@ -229,7 +229,7 @@ class LearnerMAS(ABC):
             raise RuntimeError(f"There is no model file in '{path}'!")
         model_names.sort()
         # model_path = os.path.join(path, model_names[0])
-        model_path = os.path.join(path, 'final_train_model.pth')
+        model_path = os.path.join(path, 'train_step_4000_model.pth')
         self.policy.load_state_dict(torch.load(str(model_path), map_location={
             f"cuda:{i}": self.device for i in range(MAX_GPUs)}))
         print(f"Successfully load model from '{path}'.")
