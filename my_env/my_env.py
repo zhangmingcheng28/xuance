@@ -225,7 +225,9 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         # crash_penalty = 100
         crash_penalty = 200
         reaching_reward = 200
-        wp_reach_reward = 0  # only appear once when agent first reach
+        dist_penaty_index = 1.6  # index of distance penalty
+        wp_reach_reward = 0  # only appear once when agents first reach
+        c_prob = 0  # prob penalty threshold
         step_reward = {}
         done = {}
         reach_goal = [0 for _ in range(len(self.agents))]
@@ -287,7 +289,8 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                     print(" {} hit {}".format(my_env_agent.agent_name, my_env_other_agent.agent_name))
                     break
 
-            # assign reward and done for current agent
+            # ----------- Reward function starts and done for current agent -------------------
+            # ----------- crash reward ---------
             if my_env_agent.drone_collision or my_env_agent.cloud_collision or my_env_agent.prd_collision or my_env_agent.bound_collision:
                 step_reward[my_env_agent.agent_name] = - crash_penalty
                 collision_indication[agent_idx] = 1
@@ -300,22 +303,57 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 d_c_to_f = np.linalg.norm(my_env_agent.pos - my_env_agent.destination)
                 # distance from initial point to final goal
                 d_i_to_f = np.linalg.norm(my_env_agent.ini_pos - my_env_agent.destination)
-                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
-                dist_penaty = - (d_c_to_f / d_i_to_f) * 1.6
-                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f))**3
 
-                # ----------- start of prob penalty -------------------
+                # ----------- Distance reward ----------
+                # v1.0
+                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
+                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f))**3
+                dist_penaty = - (d_c_to_f / d_i_to_f) * dist_penaty_index
+
+                # use shared distance reward
+                # v2.0
+                # d_c_to_f_list = []
+                # d_i_to_f_list = []
+                # for agent_idx_dist, agent_dist in enumerate(self.agents):  # loop through all agents, check if there is any crash case
+                #     my_env_agent_dist = self.my_agent_self_data[agent_dist] # here add "_dist" to differentiate from main "for" loop
+                #     d_c_to_f = np.linalg.norm(my_env_agent_dist.pos - my_env_agent_dist.destination)
+                #     d_c_to_f_list.append(d_c_to_f)
+                #     d_i_to_f = np.linalg.norm(my_env_agent_dist.ini_pos - my_env_agent_dist.destination)
+                #     d_i_to_f_list.append(d_i_to_f)
+                # dist_penaty = - (sum(d_c_to_f_list) / sum(d_i_to_f_list)) * 2
+
+                # v3.0
+                # delta_d = []
+                # for agent_idx_dist, agent_dist in enumerate(self.agents):  # loop through all agents, check if there is any crash case
+                #     my_env_agent_dist = self.my_agent_self_data[agent_dist] # here add "_dist" to differentiate from main "for" loop
+                #     d_c_to_f_previous = np.linalg.norm(my_env_agent_dist.pre_pos - my_env_agent_dist.destination)
+                #     d_c_to_f_current = np.linalg.norm(my_env_agent_dist.pos - my_env_agent_dist.destination)
+                #     delta_dist = d_c_to_f_previous - d_c_to_f_current
+                #     if delta_dist > 0:
+                #         # dist_p = 0
+                #         dist_p = - (d_c_to_f / d_i_to_f)
+                #     else:
+                #         if my_env_agent_dist.activation_flag == 1 and my_env_agent_dist.reach_target == False:
+                #             dist_p = - dist_penaty_index
+                #         else:
+                #             dist_p = 0
+                #     delta_d.append(dist_p)
+                # dist_penaty = sum(delta_d)
+
+                # ----------- Prob reward -------------
                 prob_penalty = 0
                 # prob_dist_list = [value[-1] for key, value in my_env_agent.probe_line.items()]
-                # if min(prob_dist_list) >= 30:
+                # if min(prob_dist_list) >= c_prob:
                 #     prob_penalty = 0
                 # else:
-                #     m = (0 - 1) / (30 - my_env_agent.NMAC_radius)
-                #     prob_penalty = m*min(prob_dist_list)
-                # ---------- end of prob penalty ------------------------
+                #     # m = (0 - 1) / (30 - my_env_agent.NMAC_radius)
+                #     prob_penalty = - c_prob * (1 / min(prob_dist_list))
 
+                # ----------- Total reward -------------
                 step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty + prob_penalty
                 done[my_env_agent.agent_name] = 0
+
+
 
             # if my_env_agent.reach_target:  # load goal reaching score only once.
             if my_env_agent.reach_target and my_env_agent.activation_flag == 1:  # load goal reaching score only once.
@@ -323,6 +361,11 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 reach_goal[agent_idx] = 1
                 # done[my_env_agent.agent_name] = 1
                 my_env_agent.activation_flag = 0  # when drone reached no need to do any changes to the drone
+        # each agent gets the same reward obtained from the overall performance of the system
+        total_reward = sum(step_reward.values())
+        for agent_idx, agent in enumerate(self.agents):
+            my_env_agent = self.my_agent_self_data[agent]
+            step_reward[my_env_agent.agent_name] = total_reward
 
         # use to fill the done indicator, possible to override the previous done (for normal step)
         if any(collision_indication):
@@ -452,7 +495,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
 def parse_args():
     parser = argparse.ArgumentParser("Example of XuanCe: IPPO for MPE.")
     parser.add_argument("--env-id", type=str, default="new_env_id")
-    parser.add_argument("--test", type=int, default=1)
+    parser.add_argument("--test", type=int, default=0)
     parser.add_argument("--benchmark", type=int, default=0)
 
     return parser.parse_args()
