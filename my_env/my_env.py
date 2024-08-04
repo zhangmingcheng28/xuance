@@ -110,8 +110,10 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         star_map_list = {
             # 'star1': [(7.071, 142.929), (75, 75), (85.333, 9.876)],
             'star1': [(7.071, 142.929), (60, 75), (79.73, 20)],
+            # 'star1': [(7.071, 142.929), (60, 75), (9, 143)],
             'star2': [(46.176, 190.299), (75, 75), (85.334, 15)],
             'star3': [(108.497, 8.911), (185, 160)],
+            # 'star3': [(108.497, 8.911), (110, 10)],
             'star4': [(139.538, 9.936), (160.002, 190.064)]
         }
         agent_ETA = [random.randint(0, self.num_agents) * 5 for a in range(self.num_agents)]
@@ -230,7 +232,6 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         c_prob = 0  # prob penalty threshold
         step_reward = {}
         done = {}
-        reach_goal = [0 for _ in range(len(self.agents))]
         collision_indication = [0 for _ in range(len(self.agents))]
         for agent_idx, agent in enumerate(self.agents):  # loop through all agents, check if there is any crash case
             my_env_agent = self.my_agent_self_data[agent]
@@ -356,23 +357,26 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
 
 
             # if my_env_agent.reach_target:  # load goal reaching score only once.
-            if my_env_agent.reach_target and my_env_agent.activation_flag == 1:  # load goal reaching score only once.
-                step_reward[my_env_agent.agent_name] = reaching_reward
-                reach_goal[agent_idx] = 1
-                # done[my_env_agent.agent_name] = 1
-                my_env_agent.activation_flag = 0  # when drone reached no need to do any changes to the drone
+            # if my_env_agent.reach_target and my_env_agent.activation_flag == 1: # load goal reaching score only once.
+            if my_env_agent.reach_target:  # load goal reaching score only once.
+                if my_env_agent.activation_flag == 1:
+                    step_reward[my_env_agent.agent_name] = reaching_reward
+                    my_env_agent.activation_flag = 0  # when drone reached no need to do any changes to the drone
+                else:
+                    step_reward[my_env_agent.agent_name] = 0
+
         # each agent gets the same reward obtained from the overall performance of the system
         total_reward = sum(step_reward.values())
         for agent_idx, agent in enumerate(self.agents):
             my_env_agent = self.my_agent_self_data[agent]
             step_reward[my_env_agent.agent_name] = total_reward
-
+        goal_status = [1 if agent.reach_target else 0 for agent in self.my_agent_self_data.values()]
         # use to fill the done indicator, possible to override the previous done (for normal step)
         if any(collision_indication):
             for agent_idx, agent in enumerate(self.agents):
                 my_env_agent = self.my_agent_self_data[agent]
                 done[my_env_agent.agent_name] = 1
-        elif all(reach_goal):
+        elif all(goal_status):
             for agent_idx, agent in enumerate(self.agents):
                 my_env_agent = self.my_agent_self_data[agent]
                 done[my_env_agent.agent_name] = 1

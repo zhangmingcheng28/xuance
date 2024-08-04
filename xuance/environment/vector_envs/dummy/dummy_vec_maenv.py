@@ -76,12 +76,14 @@ class DummyVecMultiAgentEnv(VecEnv):
             self.buf_obs[e], rew_dict[e], terminated_dict[e], truncated[e], self.buf_info[e] = self.envs[e].step(action_n)
             self.buf_avail_actions[e] = self.buf_info[e]['avail_actions']
             self.buf_state[e] = self.buf_info[e]['state']
+            if 200 in rew_dict[e].values():
+                test_episode_data[e]['episode_any_AC_reach'] = 1
             # if all(terminated_dict[e].values()) or truncated[e]:
             if any(terminated_dict[e].values()) or truncated[e]:
                 # ---- self added code for visualization of the result after each successful evaluation ----
                 # only used when evaluation mode
                 flight_data = [agent_obj.flight_data for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items()]
-                save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[0].env._current_step)
+                # save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[0].env._current_step)
                 test_episode_data[e]['flight_data'] = flight_data
                 # ---- end self added code for visualization of the result after each successful evaluation ----
 

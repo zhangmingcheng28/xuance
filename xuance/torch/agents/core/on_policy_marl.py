@@ -231,10 +231,16 @@ class OnPolicyMARLAgents(MARLAgents):
             else:
                 obs_input = {key: np.array([itemgetter(*self.agent_keys)(obs_dict)])}
                 agents_id = torch.eye(self.n_agents).unsqueeze(0).expand(n_env, -1, -1).to(self.device)
-
-            rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
-                                                                       agent_ids=agents_id,
-                                                                       rnn_hidden=rnn_hidden_critic_i)
+            if self.memory.full and self.config.agent=='IPPO':
+                for key in obs_input:
+                    obs_input[key] = obs_input[key].squeeze(axis=2)
+                    rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
+                                                                               agent_ids=agents_id,
+                                                                               rnn_hidden=rnn_hidden_critic_i)
+            else:
+                rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
+                                                                           agent_ids=agents_id,
+                                                                           rnn_hidden=rnn_hidden_critic_i)
             values_out = values_out[key].reshape(self.n_agents)
             values_dict = {k: values_out[i].cpu().detach().numpy() for i, k in enumerate(self.agent_keys)}
 
@@ -407,6 +413,8 @@ class OnPolicyMARLAgents(MARLAgents):
             state = envs.buf_state if self.use_global_state else None
 
             for i in range(num_envs):
+                if 'episode_any_AC_reach' in test_episode_data[i]:
+                    entire_evaluation_process_reach_count = entire_evaluation_process_reach_count + 1
                 # if all(terminated_dict[i].values()) or truncated[i]:
                 if any(terminated_dict[i].values()) or truncated[i]:  # if i len(flight_data_at_end_of_each_evaluation[i]) > 0 we continue
                     if len(flight_data_at_end_of_each_evaluation[i]) > 0:
@@ -420,8 +428,6 @@ class OnPolicyMARLAgents(MARLAgents):
                     sorties_conflict_detail_at_each_evaluation[i] = test_episode_data[i]['sorties_conflict_detail']
                     if 'episode_collision' in test_episode_data[i]:
                         entire_evaluation_process_conflict_count = entire_evaluation_process_conflict_count + 1
-                    elif 'episode_any_AC_reach' in test_episode_data[i]:
-                        entire_evaluation_process_reach_count = entire_evaluation_process_reach_count + 1
                     elif 'episode_all_stray' in test_episode_data[i]:
                         entire_evaluation_process_stray_count = entire_evaluation_process_stray_count + 1
                     else:
