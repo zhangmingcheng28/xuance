@@ -351,7 +351,10 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 #     prob_penalty = - c_prob * (1 / min(prob_dist_list))
 
                 # ----------- Total reward -------------
-                step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty + prob_penalty
+                if my_env_agent.activation_flag == 0:
+                    step_reward[my_env_agent.agent_name] = 0
+                else:
+                    step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty + prob_penalty
                 done[my_env_agent.agent_name] = 0
 
 
