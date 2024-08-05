@@ -34,8 +34,10 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         self.boundaries = None
         self.potential_ref_line = None
         self.cloud_config = None
-        self.time_step = 15  # in seconds, represent simulation time step
+        # self.time_step = 15  # in seconds, represent simulation time step
+        self.time_step = 30  # in seconds, represent simulation time step
         self.my_agent_self_data = {}
+        self.env_index = None
         #  ------------ end of my own attributes -------------------
 
     def get_env_info(self):
@@ -58,7 +60,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         return self.state_space.sample()
 
     def reset(self):
-        print("reset called")
+        print("reset called at env number {}".format(self.env_index))
         cloud_0 = [75, 50, 200, 50]
         cloud_1 = [140, 125, 200, 125]
         all_clouds = [cloud_0, cloud_1]
@@ -198,7 +200,11 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         rewards, terminated = self.obtain_reward()
         # rewards = {agent: np.random.random() for agent in self.agents}
         # terminated = {agent: False for agent in self.agents}
-        truncated = False if self._current_step < self.max_episode_steps else True
+        if self._current_step < self.max_episode_steps:
+            truncated = False
+        else:
+            truncated = True
+            print("env number {} has used all its steps, it is going to reset.".format(self.env_index))
         info = {}
         return observation, rewards, terminated, truncated, info
 
@@ -228,6 +234,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         crash_penalty = 200
         reaching_reward = 200
         dist_penaty_index = 1.6  # index of distance penalty
+        local_ratio = 0.5  # indicate the raio of reward used from global and local reward
         wp_reach_reward = 0  # only appear once when agents first reach
         c_prob = 0  # prob penalty threshold
         step_reward = {}
@@ -245,21 +252,22 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
 
                 # check if host drone has reached its waypoints
                 if host_circle.intersects(wp_circle) or host_circle.within(wp_circle) or host_circle.overlaps(wp_circle):
-                    print("{} reaches its waypoint".format(my_env_agent.agent_name))
+                    print("{} reaches its waypoint of env number {}".format(my_env_agent.agent_name, self.env_index))
                     step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + wp_reach_reward
                     del my_env_agent.waypoints[0]
 
             # check of host drone reaches the goal
             if host_circle.intersects(target_circle) or host_circle.within(target_circle) or host_circle.overlaps(target_circle):
                 my_env_agent.reach_target = True
-                print("{} reaches its goal at step {}".format(my_env_agent.agent_name, self._current_step))
+                print("{} reaches its goal at step {} of env number {}".format(my_env_agent.agent_name,
+                                                                               self._current_step, self.env_index))
 
 
             # check whether crash into boundaries
             conflicting_lines = check_line_circle_conflict(host_circle, self.boundaries)
             if len(conflicting_lines) > 0:
                 my_env_agent.bound_collision = True
-                print("{} conflict with boundaries at step {}".format(my_env_agent.agent_name, self._current_step))
+                print("{} conflict with boundaries at step {} of env number {}".format(my_env_agent.agent_name, self._current_step, self.env_index))
 
 
             # # check whether crash into polygons
@@ -275,7 +283,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 # conflicting_cloud = polygons_single_cloud_conflict(host_circle, cloud_area_moved)
                 if len(conflicting_cloud) > 0:
                     my_env_agent.cloud_collision = True
-                    print("{} conflict with cloud".format(my_env_agent.agent_name))
+                    print("{} conflict with cloud of env number {}".format(my_env_agent.agent_name, self.env_index))
                     break
 
             # check whether current drone crash into other drones
@@ -287,7 +295,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 other_agent_pass_volume = other_agent_pass_line.buffer(my_env_other_agent.NMAC_radius, cap_style=1)
                 if between_polygon_conflict(host_passed_volume, other_agent_pass_volume):
                     my_env_agent.drone_collision = True
-                    print(" {} hit {}".format(my_env_agent.agent_name, my_env_other_agent.agent_name))
+                    print(" {} hit {} of env number {}".format(my_env_agent.agent_name, my_env_other_agent.agent_name, self.env_index))
                     break
 
             # ----------- Reward function starts and done for current agent -------------------
@@ -306,21 +314,20 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 d_i_to_f = np.linalg.norm(my_env_agent.ini_pos - my_env_agent.destination)
 
                 # ----------- Distance reward ----------
-                # v1.0
+                # Local distance reward: the gradient of individual agent to goal
                 # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
-                # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f))**3
-                dist_penaty = - (d_c_to_f / d_i_to_f) * dist_penaty_index
+                local_dist_penaty = - (d_c_to_f / d_i_to_f) * dist_penaty_index
 
-                # use shared distance reward
-                # v2.0
-                # d_c_to_f_list = []
-                # d_i_to_f_list = []
-                # for agent_idx_dist, agent_dist in enumerate(self.agents):  # loop through all agents, check if there is any crash case
-                #     my_env_agent_dist = self.my_agent_self_data[agent_dist] # here add "_dist" to differentiate from main "for" loop
-                #     d_c_to_f = np.linalg.norm(my_env_agent_dist.pos - my_env_agent_dist.destination)
-                #     d_c_to_f_list.append(d_c_to_f)
-                #     d_i_to_f = np.linalg.norm(my_env_agent_dist.ini_pos - my_env_agent_dist.destination)
-                #     d_i_to_f_list.append(d_i_to_f)
+                # global distance reward: use average reward of all agents
+                # global_dist_penalty = 0
+                total_penalty = []
+                for agent_idx_dist, agent_dist in enumerate(self.agents):  # loop through all agents, check if there is any crash case
+                    my_env_agent_dist = self.my_agent_self_data[agent_dist] # here add "_dist" to differentiate from main "for" loop
+                    d_c_to_f = np.linalg.norm(my_env_agent_dist.pos - my_env_agent_dist.destination)
+                    d_i_to_f = np.linalg.norm(my_env_agent_dist.ini_pos - my_env_agent_dist.destination)
+                    dist_p = - (d_c_to_f / d_i_to_f) * dist_penaty_index
+                    total_penalty.append(dist_p)
+                global_dist_penalty = sum(total_penalty) / len(self.agents)
                 # dist_penaty = - (sum(d_c_to_f_list) / sum(d_i_to_f_list)) * 2
 
                 # v3.0
@@ -351,13 +358,14 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 #     prob_penalty = - c_prob * (1 / min(prob_dist_list))
 
                 # ----------- Total reward -------------
-                if my_env_agent.activation_flag == 0:
-                    step_reward[my_env_agent.agent_name] = 0
-                else:
-                    step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty + prob_penalty
+                # if my_env_agent.activation_flag == 0:
+                #     step_reward[my_env_agent.agent_name] = 0
+                # else:
+                #     step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty + prob_penalty
+
+                dist_penaty = local_dist_penaty * local_ratio + global_dist_penalty * (1-local_ratio)
+                step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + dist_penaty + prob_penalty
                 done[my_env_agent.agent_name] = 0
-
-
 
             # if my_env_agent.reach_target:  # load goal reaching score only once.
             # if my_env_agent.reach_target and my_env_agent.activation_flag == 1: # load goal reaching score only once.
@@ -369,10 +377,11 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                     step_reward[my_env_agent.agent_name] = 0
 
         # each agent gets the same reward obtained from the overall performance of the system
-        total_reward = sum(step_reward.values())
-        for agent_idx, agent in enumerate(self.agents):
-            my_env_agent = self.my_agent_self_data[agent]
-            step_reward[my_env_agent.agent_name] = total_reward
+        # total_reward = sum(step_reward.values())
+        # for agent_idx, agent in enumerate(self.agents):
+        #     my_env_agent = self.my_agent_self_data[agent]
+        #     step_reward[my_env_agent.agent_name] = total_reward
+
         goal_status = [1 if agent.reach_target else 0 for agent in self.my_agent_self_data.values()]
         # use to fill the done indicator, possible to override the previous done (for normal step)
         if any(collision_indication):
