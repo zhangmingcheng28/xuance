@@ -8,6 +8,7 @@ from operator import itemgetter
 from xuance.torch.agents.base import MARLAgents
 from xuance.environment import DummyVecMultiAgentEnv
 from xuance.common import MARL_OnPolicyBuffer, MARL_OnPolicyBuffer_RNN
+from utilities import *
 
 
 class OnPolicyMARLAgents(MARLAgents):
@@ -412,20 +413,18 @@ class OnPolicyMARLAgents(MARLAgents):
             obs_dict, avail_actions = deepcopy(next_obs_dict), deepcopy(next_avail_actions)
             state = envs.buf_state if self.use_global_state else None
 
-            for i in range(num_envs):
+            for i in range(num_envs):  # when one step is finish for all environment we check any termination for each environment
                 if 'episode_any_AC_reach' in test_episode_data[i]:
                     entire_evaluation_process_reach_count = entire_evaluation_process_reach_count + 1
                 # if all(terminated_dict[i].values()) or truncated[i]:
                 if any(terminated_dict[i].values()) or truncated[i]:  # if i len(flight_data_at_end_of_each_evaluation[i]) > 0 we continue
-                    if len(flight_data_at_end_of_each_evaluation[i]) > 0:
-                        # there is duplicate environment numbers, I not sure why, possible due to xuance code problem.
-                        continue
+                    # load flight data to dict, make sure episode_count is after the load of information, so that loading start with index=0
+                    if episode_count < num_envs:
+                        flight_data_at_end_of_each_evaluation[episode_count] = test_episode_data[i]['flight_data']
+                        sorties_conflict_detail_at_each_evaluation[episode_count] = test_episode_data[i]['sorties_conflict_detail']
                     episode_count += 1
                     episode_score = float(np.mean(itemgetter(*self.agent_keys)(info[i]["episode_score"])))  # get the mean value of the accumulated score among all agents in current episode.
                     scores.append(episode_score)
-                    # load flight data to dict
-                    flight_data_at_end_of_each_evaluation[i] = test_episode_data[i]['flight_data']
-                    sorties_conflict_detail_at_each_evaluation[i] = test_episode_data[i]['sorties_conflict_detail']
                     if 'episode_collision' in test_episode_data[i]:
                         entire_evaluation_process_conflict_count = entire_evaluation_process_conflict_count + 1
                     elif 'episode_all_stray' in test_episode_data[i]:

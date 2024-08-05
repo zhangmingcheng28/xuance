@@ -43,6 +43,15 @@ aircraft_svg_path = r'F:\githubClone\HotspotResolver_24\pictures\Aircraft.svg'  
 plane_img = load_svg_image(aircraft_svg_path)
 
 
+def generate_unique_gif_path(base_path, base_name):
+    count = 1
+    while True:
+        gif_path = os.path.join(base_path, f"{base_name}_{count}.gif")
+        if not os.path.exists(gif_path):
+            return gif_path
+        count += 1
+
+
 def estimated_area_swap_by_arbitary_cloud(cloud_agent):
     initial_polygon = cloud_agent.cloud_actual_previous_shape
     final_polygon = cloud_agent.cloud_actual_cur_shape
@@ -367,7 +376,10 @@ def save_gif(env, trajectory_eachPlay, cloud_movement, eps_step):
     ani = animation.FuncAnimation(fig, animate, fargs=(ax, env, trajectory_eachPlay, cloud_movement), frames=eps_step,
                                   interval=300, blit=False)
     # Save as GIF
-    gif_path = r'F:\githubClone\xuance\my_env' + str(1) + '.gif'
+    # gif_path = r'F:\githubClone\xuance\my_env' + str(1) + '.gif'
+    base_path = r'F:\githubClone\xuance\my_env'
+    base_name = 'episode'
+    gif_path = generate_unique_gif_path(base_path, base_name)
     ani.save(gif_path, writer='pillow')
 
     # Close figure

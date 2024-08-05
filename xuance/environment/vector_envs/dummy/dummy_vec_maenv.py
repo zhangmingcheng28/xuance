@@ -17,6 +17,10 @@ class DummyVecMultiAgentEnv(VecEnv):
         self.waiting = False
         self.closed = False
         self.envs = [fn() for fn in env_fns]
+        # ----start of assign env ID to each created environment (self created) ---------
+        for env_id, env in enumerate(self.envs):
+            self.envs[env_id].env.env_index = env_id
+        # ----end of assign env ID to each created environment (self created) ---------
         env = self.envs[0]
         VecEnv.__init__(self, len(env_fns), env.observation_space, env.action_space)
 
@@ -83,7 +87,7 @@ class DummyVecMultiAgentEnv(VecEnv):
                 # ---- self added code for visualization of the result after each successful evaluation ----
                 # only used when evaluation mode
                 flight_data = [agent_obj.flight_data for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items()]
-                # save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[0].env._current_step)
+                # save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[e].env._current_step)
                 test_episode_data[e]['flight_data'] = flight_data
                 # ---- end self added code for visualization of the result after each successful evaluation ----
 
@@ -91,11 +95,14 @@ class DummyVecMultiAgentEnv(VecEnv):
                 # # loop through each test scenario for stats, only used for any(terminated_dict[e].values()) case
                 cloud_conflict_count = 0
                 drone_collision_count = 0
-                if -200 in rew_dict[e].values():
+                # if -400 in rew_dict[e].values():
+                if any(value <= -400 for value in rew_dict[e].values()):
                     test_episode_data[e]['episode_collision'] = 1
-                elif 200 in rew_dict[e].values():
+                # elif 200 in rew_dict[e].values():
+                elif any(value >= 200 for value in rew_dict[e].values()):
                     test_episode_data[e]['episode_any_AC_reach'] = 1
-                elif truncated[e] and -200 not in rew_dict[e].values() and 200 not in rew_dict[e].values():
+                # elif truncated[e] and -400 not in rew_dict[e].values() and 200 not in rew_dict[e].values():
+                elif truncated[e]:
                     test_episode_data[e]['episode_all_stray'] = 1
                 else:
                     print("None of the situation exist")
