@@ -18,6 +18,7 @@ class BasicQhead(Module):
         initialize (Optional[Callable[..., Tensor]]): The parameters initializer.
         activation (Optional[ModuleType]): The activation function for each layer.
     """
+
     def __init__(self,
                  state_dim: int,
                  n_actions: int,
@@ -56,6 +57,7 @@ class DuelQhead(Module):
         initialize (Optional[Callable[..., Tensor]]): The parameters initializer.
         activation (Optional[ModuleType]): The activation function for each layer.
     """
+
     def __init__(self,
                  state_dim: int,
                  n_actions: int,
@@ -108,6 +110,7 @@ class C51Qhead(Module):
         initialize (Optional[Callable[..., Tensor]]): The parameters initializer.
         activation (Optional[ModuleType]): The activation function for each layer.
     """
+
     def __init__(self,
                  state_dim: int,
                  n_actions: int,
@@ -154,6 +157,7 @@ class QRDQNhead(Module):
        initialize (Optional[Callable[..., Tensor]]): The parameters initializer.
        activation (Optional[ModuleType]): The activation function for each layer.
     """
+
     def __init__(self,
                  state_dim: int,
                  n_actions: int,
@@ -188,6 +192,7 @@ class QRDQNhead(Module):
 
 class BasicRecurrent(Module):
     """Build recurrent  neural network to calculate Q values."""
+
     def __init__(self, **kwargs):
         super(BasicRecurrent, self).__init__()
         self.lstm = False
@@ -234,6 +239,7 @@ class ActorNet(Module):
         activation (Optional[ModuleType]): The activation function for each layer.
         activation_action (Optional[ModuleType]): The activation of final layer to bound the actions.
     """
+
     def __init__(self,
                  state_dim: int,
                  action_dim: int,
@@ -273,6 +279,7 @@ class CategoricalActorNet(Module):
         initialize (Optional[Callable[..., Tensor]]): The parameters initializer.
         activation (Optional[ModuleType]): The activation function for each layer.
     """
+
     def __init__(self,
                  state_dim: int,
                  action_dim: int,
@@ -331,8 +338,7 @@ class CategoricalActorNet_SAC(CategoricalActorNet):
         super(CategoricalActorNet_SAC, self).__init__(state_dim, action_dim, hidden_sizes,
                                                       normalize, initialize, activation)
 
-    @tf.function
-    def call(self, x: Union[Tensor, np.ndarray], avail_actions: Optional[Tensor] = None):
+    def call(self, x: Union[Tensor, np.ndarray], avail_actions: Optional[Tensor] = None, **kwargs):
         """
         Returns the stochastic distribution over all discrete actions.
         Parameters:
@@ -347,7 +353,7 @@ class CategoricalActorNet_SAC(CategoricalActorNet):
             logits[avail_actions == 0] = -1e10
         probs = softmax(logits)
         self.dist.set_param(probs=probs)
-        return self.dist
+        return probs
 
 
 class GaussianActorNet(Module):
@@ -381,12 +387,12 @@ class GaussianActorNet(Module):
         layers.extend(mlp_block(input_shape[0], action_dim, None, activation_action, initialize)[0])
         self.mu = tk.Sequential(layers)
         self.logstd = self.add_weight(name="log_of_std",
-                                      shape=(action_dim, ),
+                                      shape=(action_dim,),
                                       initializer=tf.ones,
                                       trainable=True)
+        # self.logstd = tf.Variable(tf.zeros((action_dim,)) - 1, trainable=True)
         self.dist = DiagGaussianDistribution(action_dim)
 
-    @tf.function
     def call(self, x: Union[Tensor, np.ndarray], **kwargs):
         """
         Returns the stochastic distribution over the continuous action space.
@@ -396,8 +402,9 @@ class GaussianActorNet(Module):
         Returns:
             self.dist: A distribution over the continuous action space.
         """
-        self.dist.set_param(self.mu(x), self.logstd.exp())
-        return self.dist
+        mu_ = self.mu(x)
+        self.dist.set_param(mu_, tf.exp(self.logstd))
+        return mu_
 
 
 class CriticNet(Module):
@@ -411,6 +418,7 @@ class CriticNet(Module):
         initialize (Optional[Callable[..., Tensor]]): The parameters initializer.
         activation (Optional[ModuleType]): The activation function for each layer.
     """
+
     def __init__(self,
                  input_dim: int,
                  hidden_sizes: Sequence[int],
@@ -465,11 +473,10 @@ class GaussianActorNet_SAC(Module):
             mlp, input_shape = mlp_block(input_shape[0], h, normalize, activation, initialize)
             layers.extend(mlp)
         self.out = tk.Sequential(layers)
-        self.out_mu = tk.layers.Dense(units=action_dim, activation=None, input_shape=(hidden_sizes[-1], ))
-        self.out_log_std = tk.layers.Dense(units=action_dim, activation=None, input_shape=(hidden_sizes[-1], ))
+        self.out_mu = tk.layers.Dense(units=action_dim, activation=None, input_shape=(hidden_sizes[-1],))
+        self.out_log_std = tk.layers.Dense(units=action_dim, activation=None, input_shape=(hidden_sizes[-1],))
         self.dist = ActivatedDiagGaussianDistribution(action_dim, activation_action)
 
-    @tf.function
     def call(self, x: Union[Tensor, np.ndarray], **kwargs):
         """
         Returns the stochastic distribution over the continuous action space.
@@ -482,15 +489,16 @@ class GaussianActorNet_SAC(Module):
         output = self.out(x)
         mu = self.out_mu(output)
         log_std = tf.clip_by_value(self.out_log_std(output), -20, 2)
-        std = log_std.exp()
+        std = tf.exp(log_std)
         self.dist.set_param(mu, std)
-        return self.dist
+        return mu
 
 
 class VDN_mixer(Module):
     """
     The value decomposition networks mixer. (Additivity)
     """
+
     def __init__(self):
         super(VDN_mixer, self).__init__()
 
@@ -509,6 +517,7 @@ class QMIX_mixer(Module):
         dim_hypernet_hidden (int): The size of rach hidden layer for hyper network.
         n_agents (int): The number of agents.
     """
+
     def __init__(self, dim_state, dim_hidden, dim_hypernet_hidden, n_agents):
         super(QMIX_mixer, self).__init__()
         self.dim_state = dim_state
@@ -517,16 +526,16 @@ class QMIX_mixer(Module):
         self.n_agents = n_agents
         # self.hyper_w_1 = nn.Linear(self.dim_state, self.dim_hidden * self.n_agents)
         # self.hyper_w_2 = nn.Linear(self.dim_state, self.dim_hidden)
-        linear_w_1 = [tk.layers.Dense(units=self.dim_hypernet_hidden,
-                                      activation=tk.layers.Activation('relu'),
-                                      input_shape=(self.dim_state,)),
-                      tk.layers.Dense(units=self.dim_hidden * self.n_agents, input_shape=(self.dim_hypernet_hidden,))]
-        self.hyper_w_1 = tk.Sequential(linear_w_1)
-        linear_w_2 = [tk.layers.Dense(units=self.dim_hypernet_hidden,
-                                      activation=tk.layers.Activation('relu'),
-                                      input_shape=(self.dim_state,)),
-                      tk.layers.Dense(units=self.dim_hidden, input_shape=(self.dim_hypernet_hidden,))]
-        self.hyper_w_2 = tk.Sequential(linear_w_2)
+        self.hyper_w_1 = tk.Sequential([tk.layers.Dense(units=self.dim_hypernet_hidden,
+                                                        activation=tk.layers.Activation('relu'),
+                                                        input_shape=(self.dim_state,)),
+                                        tk.layers.Dense(units=self.dim_hidden * self.n_agents,
+                                                        input_shape=(self.dim_hypernet_hidden,))])
+        self.hyper_w_2 = tk.Sequential([tk.layers.Dense(units=self.dim_hypernet_hidden,
+                                                        activation=tk.layers.Activation('relu'),
+                                                        input_shape=(self.dim_state,)),
+                                        tk.layers.Dense(units=self.dim_hidden,
+                                                        input_shape=(self.dim_hypernet_hidden,))])
 
         self.hyper_b_1 = tk.layers.Dense(units=self.dim_hidden, input_shape=(self.dim_state,))
         self.hyper_b_2 = tk.Sequential([tk.layers.Dense(units=self.dim_hypernet_hidden,
@@ -570,25 +579,25 @@ class QMIX_FF_mixer(Module):
     """
     The feedforward mixer without the constraints of monotonicity.
     """
-    def __init__(self, dim_state, dim_hidden, n_agents):
+
+    def __init__(self, dim_state: int = 0,
+                 dim_hidden: int = 32,
+                 n_agents: int = 1):
         super(QMIX_FF_mixer, self).__init__()
         self.dim_state = dim_state
         self.dim_hidden = dim_hidden
         self.n_agents = n_agents
         self.dim_input = self.n_agents + self.dim_state
-        tk.layers.Dense(input_shape=(self.dim_input,), units=self.dim_hidden, activation=tk.layers.Activation('relu'))
-        layers_ff_net = [tk.layers.Dense(input_shape=(self.dim_input,), units=self.dim_hidden,
-                                         activation=tk.layers.Activation('relu')),
-                         tk.layers.Dense(input_shape=(self.dim_hidden,), units=self.dim_hidden,
-                                         activation=tk.layers.Activation('relu')),
-                         tk.layers.Dense(input_shape=(self.dim_hidden,), units=self.dim_hidden,
-                                         activation=tk.layers.Activation('relu')),
-                         tk.layers.Dense(input_shape=(self.dim_hidden,), units=1)]
-        self.ff_net = tk.Sequential(layers_ff_net)
-        layers_ff_net_bias = [tk.layers.Dense(input_shape=(self.dim_state,), units=self.dim_hidden,
-                                              activation=tk.layers.Activation('relu')),
-                              tk.layers.Dense(input_shape=(self.dim_hidden,), units=1)]
-        self.ff_net_bias = tk.Sequential(layers_ff_net_bias)
+        self.ff_net = tk.Sequential([tk.layers.Dense(input_shape=(self.dim_input,), units=self.dim_hidden,
+                                                     activation=tk.layers.Activation('relu')),
+                                     tk.layers.Dense(input_shape=(self.dim_hidden,), units=self.dim_hidden,
+                                                     activation=tk.layers.Activation('relu')),
+                                     tk.layers.Dense(input_shape=(self.dim_hidden,), units=self.dim_hidden,
+                                                     activation=tk.layers.Activation('relu')),
+                                     tk.layers.Dense(input_shape=(self.dim_hidden,), units=1)])
+        self.ff_net_bias = tk.Sequential([tk.layers.Dense(input_shape=(self.dim_state,), units=self.dim_hidden,
+                                                          activation=tk.layers.Activation('relu')),
+                                          tk.layers.Dense(input_shape=(self.dim_hidden,), units=1)])
 
     @tf.function
     def call(self, values_n, states=None, **kwargs):
@@ -668,4 +677,3 @@ class QTRAN_alt(QTRAN_base):
                 q_actions.append(q)
             q_n.append(tf.expand_dims(tf.concat(q_actions, axis=-1), axis=1))
         return tf.concat(q_n, axis=1)
-

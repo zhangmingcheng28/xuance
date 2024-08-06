@@ -6,17 +6,21 @@ from abc import ABC
 from pathlib import Path
 from argparse import Namespace
 from mpi4py import MPI
-from xuance.common import Optional
 from gym.spaces import Dict, Space
 from torch.utils.tensorboard import SummaryWriter
-from xuance.common import get_time_string, create_directory, RunningMeanStd, space2shape, EPS
+from xuance.common import get_time_string, create_directory, RunningMeanStd, space2shape, EPS, Optional
 from xuance.environment import DummyVecEnv
-from xuance.tensorflow import Module
-from xuance.tensorflow import REGISTRY_Representation, REGISTRY_Learners
-from xuance.tensorflow.utils import NormalizeFunctions, ActivationFunctions
+from xuance.tensorflow import REGISTRY_Representation, REGISTRY_Learners, Module
+from xuance.tensorflow.utils import NormalizeFunctions, ActivationFunctions, InitializeFunctions
 
 
 class Agent(ABC):
+    """Base class of agent for single-agent DRL.
+
+    Args:
+        config: the Namespace variable that provides hyper-parameters and other settings.
+        envs: the vectorized environments.
+    """
     def __init__(self,
                  config: Namespace,
                  envs: DummyVecEnv):
@@ -190,7 +194,7 @@ class Agent(ABC):
             input_shape=space2shape(input_space),
             hidden_sizes=config.representation_hidden_size if hasattr(config, "representation_hidden_size") else None,
             normalize=NormalizeFunctions[config.normalize] if hasattr(config, "normalize") else None,
-            initialize={},
+            initialize=InitializeFunctions[config.initialize] if hasattr(self.config, "initialize") else None,
             activation=ActivationFunctions[config.activation],
             kernels=config.kernels if hasattr(config, "kernels") else None,
             strides=config.strides if hasattr(config, "strides") else None,

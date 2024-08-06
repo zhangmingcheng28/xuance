@@ -2,13 +2,11 @@ from tqdm import tqdm
 import torch
 import numpy as np
 from copy import deepcopy
-from xuance.common import Optional, List, Union
 from argparse import Namespace
 from operator import itemgetter
-from xuance.torch.agents.base import MARLAgents
+from xuance.common import MARL_OnPolicyBuffer, MARL_OnPolicyBuffer_RNN, Optional, List, Union
 from xuance.environment import DummyVecMultiAgentEnv
-from xuance.common import MARL_OnPolicyBuffer, MARL_OnPolicyBuffer_RNN
-from utilities import *
+from xuance.torch.agents.base import MARLAgents
 
 
 class OnPolicyMARLAgents(MARLAgents):
@@ -232,16 +230,10 @@ class OnPolicyMARLAgents(MARLAgents):
             else:
                 obs_input = {key: np.array([itemgetter(*self.agent_keys)(obs_dict)])}
                 agents_id = torch.eye(self.n_agents).unsqueeze(0).expand(n_env, -1, -1).to(self.device)
-            if self.memory.full and self.config.agent=='IPPO':
-                for key in obs_input:
-                    obs_input[key] = obs_input[key].squeeze(axis=2)
-                    rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
-                                                                               agent_ids=agents_id,
-                                                                               rnn_hidden=rnn_hidden_critic_i)
-            else:
-                rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
-                                                                           agent_ids=agents_id,
-                                                                           rnn_hidden=rnn_hidden_critic_i)
+
+            rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
+                                                                       agent_ids=agents_id,
+                                                                       rnn_hidden=rnn_hidden_critic_i)
             values_out = values_out[key].reshape(self.n_agents)
             values_dict = {k: values_out[i].cpu().detach().numpy() for i, k in enumerate(self.agent_keys)}
 
@@ -300,24 +292,22 @@ class OnPolicyMARLAgents(MARLAgents):
         obs_dict = self.envs.buf_obs
         avail_actions = self.envs.buf_avail_actions if self.use_actions_mask else None
         state = self.envs.buf_state if self.use_global_state else None
-        for i in tqdm(range(n_steps)):
-            if i % 1000 == 0:
-                self.save_model("train_step_" + str(i)+"_model.pth")
+        for _ in tqdm(range(n_steps)):
             step_info = {}
             policy_out = self.action(obs_dict=obs_dict, state=state, avail_actions_dict=avail_actions, test_mode=False)
             actions_dict, log_pi_a_dict = policy_out['actions'], policy_out['log_pi']
             values_dict = policy_out['values']
-            next_obs_dict, rewards_dict, terminated_dict, truncated, info, _ = self.envs.step(actions_dict)
+            next_obs_dict, rewards_dict, terminated_dict, truncated, info = self.envs.step(actions_dict)
             next_avail_actions = self.envs.buf_avail_actions if self.use_actions_mask else None
             self.store_experience(obs_dict, avail_actions, actions_dict, log_pi_a_dict, rewards_dict, values_dict,
                                   terminated_dict, info, **{'state': state})
             if self.memory.full:
                 for i in range(self.n_envs):
-                    # if all(terminated_dict[i].values()):
-                    if any(terminated_dict[i].values()):
+                    if all(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
-                        _, value_next = self.values_next(i_env=i, obs_dict=next_obs_dict[i], state=state[i])
+                        state_i = state[i] if self.use_global_state else None
+                        _, value_next = self.values_next(i_env=i, obs_dict=next_obs_dict[i], state=state_i)
                     self.memory.finish_path(i_env=i, value_next=value_next,
                                             value_normalizer=self.learner.value_normalizer)
             train_info = self.train_epochs(n_epochs=self.n_epochs)
@@ -326,13 +316,12 @@ class OnPolicyMARLAgents(MARLAgents):
             state = self.envs.buf_state if self.use_global_state else None
 
             for i in range(self.n_envs):
-                # if all(terminated_dict[i].values()) or truncated[i]:
-                if any(terminated_dict[i].values()) or truncated[i]:
-                #     if all(terminated_dict[i].values()):
-                    if any(terminated_dict[i].values()):
+                if all(terminated_dict[i].values()) or truncated[i]:
+                    if all(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
-                        _, value_next = self.values_next(i_env=i, obs_dict=obs_dict[i], state=state[i])
+                        state_i = state[i] if self.use_global_state else None
+                        _, value_next = self.values_next(i_env=i, obs_dict=obs_dict[i], state=state_i)
                     self.memory.finish_path(i_env=i, value_next=value_next,
                                             value_normalizer=self.learner.value_normalizer)
                     obs_dict[i] = info[i]["reset_obs"]
@@ -383,15 +372,6 @@ class OnPolicyMARLAgents(MARLAgents):
                 self.memory.clear_episodes()
         rnn_hidden_actor, rnn_hidden_critic = self.init_rnn_hidden(num_envs)
 
-        # ------------------------------------ start of self-add for stats accumulation ---------------------
-        flight_data_at_end_of_each_evaluation = [[] for _ in range(num_envs)]
-        sorties_conflict_detail_at_each_evaluation = [[] for _ in range(num_envs)]
-        entire_evaluation_process_sorties_cloud_conflict = 0
-        entire_evaluation_process_sorties_self_conflict = 0
-        entire_evaluation_process_reach_count = 0
-        entire_evaluation_process_conflict_count = 0
-        entire_evaluation_process_stray_count = 0
-        # ------------------------------------ end of self-add for stats accumulation ---------------------
         while episode_count < n_episodes:
             step_info = {}
             policy_out = self.action(obs_dict=obs_dict, state=state, avail_actions_dict=avail_actions,
@@ -400,7 +380,7 @@ class OnPolicyMARLAgents(MARLAgents):
             rnn_hidden_actor, rnn_hidden_critic = policy_out['rnn_hidden_actor'], policy_out['rnn_hidden_critic']
             actions_dict, log_pi_a_dict = policy_out['actions'], policy_out['log_pi']
             values_dict = policy_out['values']
-            next_obs_dict, rewards_dict, terminated_dict, truncated, info, test_episode_data = envs.step(actions_dict)
+            next_obs_dict, rewards_dict, terminated_dict, truncated, info = envs.step(actions_dict)
             next_avail_actions = envs.buf_avail_actions if self.use_actions_mask else None
             if test_mode:
                 if self.config.render_mode == "rgb_array" and self.render:
@@ -413,25 +393,11 @@ class OnPolicyMARLAgents(MARLAgents):
             obs_dict, avail_actions = deepcopy(next_obs_dict), deepcopy(next_avail_actions)
             state = envs.buf_state if self.use_global_state else None
 
-            for i in range(num_envs):  # when one step is finish for all environment we check any termination for each environment
-                if 'episode_any_AC_reach' in test_episode_data[i]:
-                    entire_evaluation_process_reach_count = entire_evaluation_process_reach_count + 1
-                # if all(terminated_dict[i].values()) or truncated[i]:
-                if any(terminated_dict[i].values()) or truncated[i]:  # if i len(flight_data_at_end_of_each_evaluation[i]) > 0 we continue
-                    # load flight data to dict, make sure episode_count is after the load of information, so that loading start with index=0
-                    if episode_count < num_envs:
-                        flight_data_at_end_of_each_evaluation[episode_count] = test_episode_data[i]['flight_data']
-                        sorties_conflict_detail_at_each_evaluation[episode_count] = test_episode_data[i]['sorties_conflict_detail']
+            for i in range(num_envs):
+                if all(terminated_dict[i].values()) or truncated[i]:
                     episode_count += 1
-                    episode_score = float(np.mean(itemgetter(*self.agent_keys)(info[i]["episode_score"])))  # get the mean value of the accumulated score among all agents in current episode.
+                    episode_score = float(np.mean(itemgetter(*self.agent_keys)(info[i]["episode_score"])))
                     scores.append(episode_score)
-                    if 'episode_collision' in test_episode_data[i]:
-                        entire_evaluation_process_conflict_count = entire_evaluation_process_conflict_count + 1
-                    elif 'episode_all_stray' in test_episode_data[i]:
-                        entire_evaluation_process_stray_count = entire_evaluation_process_stray_count + 1
-                    else:
-                        pass
-
                     if test_mode:
                         if self.use_rnn:
                             rnn_hidden_actor, _ = self.init_hidden_item(i, rnn_hidden_actor)
@@ -479,29 +445,9 @@ class OnPolicyMARLAgents(MARLAgents):
                 "Test-Results/Episode-Rewards/Mean-Score": np.mean(scores),
                 "Test-Results/Episode-Rewards/Std-Score": np.std(scores),
             }
-            # ------------------------------------ start of self-add for stats accumulation ---------------------
-            for each_episode_sorties_conflict in sorties_conflict_detail_at_each_evaluation:
-                if each_episode_sorties_conflict['episode_cloud_conflict'] > 0:
-                    entire_evaluation_process_sorties_cloud_conflict = \
-                        entire_evaluation_process_sorties_cloud_conflict + \
-                        each_episode_sorties_conflict['episode_cloud_conflict']
-                elif each_episode_sorties_conflict['episode_drone_conflict'] > 0:
-                    entire_evaluation_process_sorties_self_conflict = \
-                        entire_evaluation_process_sorties_self_conflict + \
-                        each_episode_sorties_conflict['episode_drone_conflict']
-            print('Total conflict episode detected is {}. \n'
-                  'Total number of episode have any drone reaches it goal is {}. \n'
-                  'Total number of stray episode occurs is {}.\n'
-                  'Total number of sorties conflict with cloud is {}.\n'
-                  'Total number of sorties conflict with each other is {}'.format(
-                entire_evaluation_process_conflict_count, entire_evaluation_process_reach_count,
-                entire_evaluation_process_stray_count, entire_evaluation_process_sorties_cloud_conflict,
-                entire_evaluation_process_sorties_self_conflict))
-            # ------------------------------------ end of self-add for stats accumulation ---------------------
             self.log_infos(test_info, self.current_step)
             if env_fn is not None:
                 envs.close()
-
         return scores
 
     def test(self, env_fn, n_episodes):

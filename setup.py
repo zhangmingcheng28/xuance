@@ -14,7 +14,7 @@ setup(
                 "environment/magent2/libmagent.dylib"  # for magent2 environment on MacOS (for Intel CPU)
             ]
     },
-    version="1.2.1",
+    version="1.2.2",
     description='XuanCe: A Comprehensive and Unified Deep Reinforcement Learning Library.',
     long_description='XuanCe is an open-source ensemble of Deep Reinforcement Learning (DRL) algorithm implementations. We call it as Xuan-Ce (玄策) in Chinese. "Xuan (玄)" means incredible and magic box, "Ce (策)" means policy. DRL algorithms are sensitive to hyper-parameters tuning, varying in performance with different tricks, and suffering from unstable training processes, therefore, sometimes DRL algorithms seems elusive and "Xuan". This project gives a thorough, high-quality and easy-to-understand implementation of DRL algorithms, and hope this implementation can give a hint on the magics of reinforcement learning. We expect it to be compatible with multiple deep learning toolboxes( PyTorch, TensorFlow, and MindSpore), and hope it can really become a zoo full of DRL algorithms.',
     author='Wenzhang Liu, et al.',
@@ -44,11 +44,12 @@ setup(
         "all": [
             "torch==1.13.0",
             "tensorflow==2.6.0",
-            "mindspore==2.2.0"  # mindspore might be installed manually.
+            "mindspore==2.2.14"  # mindspore might be installed manually.
         ],
         "atari": ["atari-py==0.2.9",  # for Atari
                   "ale-py==0.7.5"],
-        "box2d": ["box2d-py==2.3.5"],  # for box2d
+        "box2d": ["swig==4.2.1",
+                  "box2d-py==2.3.5"],  # for box2d
     },
     install_requires=[
         "numpy>=1.21.6",
