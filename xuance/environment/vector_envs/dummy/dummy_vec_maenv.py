@@ -96,7 +96,7 @@ class DummyVecMultiAgentEnv(VecEnv):
                 cloud_conflict_count = 0
                 drone_collision_count = 0
                 # if -400 in rew_dict[e].values():
-                if any(value <= -400 for value in rew_dict[e].values()):
+                if any(value <= -200 for value in rew_dict[e].values()):
                     test_episode_data[e]['episode_collision'] = 1
                 # elif 200 in rew_dict[e].values():
                 elif any(value >= 200 for value in rew_dict[e].values()):

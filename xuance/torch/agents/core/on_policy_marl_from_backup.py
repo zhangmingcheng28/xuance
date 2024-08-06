@@ -2,12 +2,14 @@ from tqdm import tqdm
 import torch
 import numpy as np
 from copy import deepcopy
+from xuance.common import Optional, List, Union
 from argparse import Namespace
 from operator import itemgetter
-from xuance.common import MARL_OnPolicyBuffer, MARL_OnPolicyBuffer_RNN, Optional, List, Union
-from xuance.environment import DummyVecMultiAgentEnv
 from xuance.torch.agents.base import MARLAgents
+from xuance.environment import DummyVecMultiAgentEnv
+from xuance.common import MARL_OnPolicyBuffer, MARL_OnPolicyBuffer_RNN
 from utilities import *
+
 
 class OnPolicyMARLAgents(MARLAgents):
     """The core class for on-policy algorithm with single agent.
@@ -230,10 +232,16 @@ class OnPolicyMARLAgents(MARLAgents):
             else:
                 obs_input = {key: np.array([itemgetter(*self.agent_keys)(obs_dict)])}
                 agents_id = torch.eye(self.n_agents).unsqueeze(0).expand(n_env, -1, -1).to(self.device)
-
-            rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
-                                                                       agent_ids=agents_id,
-                                                                       rnn_hidden=rnn_hidden_critic_i)
+            if self.memory.full and self.config.agent=='IPPO':
+                for key in obs_input:
+                    obs_input[key] = obs_input[key].squeeze(axis=2)
+                    rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
+                                                                               agent_ids=agents_id,
+                                                                               rnn_hidden=rnn_hidden_critic_i)
+            else:
+                rnn_hidden_critic_new, values_out = self.policy.get_values(observation=obs_input,
+                                                                           agent_ids=agents_id,
+                                                                           rnn_hidden=rnn_hidden_critic_i)
             values_out = values_out[key].reshape(self.n_agents)
             values_dict = {k: values_out[i].cpu().detach().numpy() for i, k in enumerate(self.agent_keys)}
 
@@ -305,11 +313,11 @@ class OnPolicyMARLAgents(MARLAgents):
                                   terminated_dict, info, **{'state': state})
             if self.memory.full:
                 for i in range(self.n_envs):
-                    if all(terminated_dict[i].values()):
+                    # if all(terminated_dict[i].values()):
+                    if any(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
-                        state_i = state[i] if self.use_global_state else None
-                        _, value_next = self.values_next(i_env=i, obs_dict=next_obs_dict[i], state=state_i)
+                        _, value_next = self.values_next(i_env=i, obs_dict=next_obs_dict[i], state=state[i])
                     self.memory.finish_path(i_env=i, value_next=value_next,
                                             value_normalizer=self.learner.value_normalizer)
             train_info = self.train_epochs(n_epochs=self.n_epochs)
@@ -318,12 +326,13 @@ class OnPolicyMARLAgents(MARLAgents):
             state = self.envs.buf_state if self.use_global_state else None
 
             for i in range(self.n_envs):
-                if all(terminated_dict[i].values()) or truncated[i]:
-                    if all(terminated_dict[i].values()):
+                # if all(terminated_dict[i].values()) or truncated[i]:
+                if any(terminated_dict[i].values()) or truncated[i]:
+                #     if all(terminated_dict[i].values()):
+                    if any(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
-                        state_i = state[i] if self.use_global_state else None
-                        _, value_next = self.values_next(i_env=i, obs_dict=obs_dict[i], state=state_i)
+                        _, value_next = self.values_next(i_env=i, obs_dict=obs_dict[i], state=state[i])
                     self.memory.finish_path(i_env=i, value_next=value_next,
                                             value_normalizer=self.learner.value_normalizer)
                     obs_dict[i] = info[i]["reset_obs"]
@@ -407,7 +416,8 @@ class OnPolicyMARLAgents(MARLAgents):
             for i in range(num_envs):  # when one step is finish for all environment we check any termination for each environment
                 if 'episode_any_AC_reach' in test_episode_data[i]:
                     entire_evaluation_process_reach_count = entire_evaluation_process_reach_count + 1
-                if all(terminated_dict[i].values()) or truncated[i]:
+                # if all(terminated_dict[i].values()) or truncated[i]:
+                if any(terminated_dict[i].values()) or truncated[i]:  # if i len(flight_data_at_end_of_each_evaluation[i]) > 0 we continue
                     # load flight data to dict, make sure episode_count is after the load of information, so that loading start with index=0
                     if episode_count < num_envs:
                         flight_data_at_end_of_each_evaluation[episode_count] = test_episode_data[i]['flight_data']
@@ -491,6 +501,7 @@ class OnPolicyMARLAgents(MARLAgents):
             self.log_infos(test_info, self.current_step)
             if env_fn is not None:
                 envs.close()
+
         return scores
 
     def test(self, env_fn, n_episodes):
