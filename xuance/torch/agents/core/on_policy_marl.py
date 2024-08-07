@@ -360,18 +360,18 @@ class OnPolicyMARLAgents(MARLAgents):
 
                     if 'episode_collision' in test_episode_data[i]:
                         entire_evaluation_process_conflict_count = entire_evaluation_process_conflict_count + 1
-                    elif 'episode_all_stray' in test_episode_data[i]:
+                    if 'episode_all_stray' in test_episode_data[i]:
                         entire_evaluation_process_stray_count = entire_evaluation_process_stray_count + 1
-                    elif 'sorties_conflict_detail' in test_episode_data[i]:
+                    if 'sorties_conflict_detail' in test_episode_data[i]:
                         entire_evaluation_process_sorties_cloud_conflict = \
                             entire_evaluation_process_sorties_cloud_conflict + \
                             test_episode_data[i]['sorties_conflict_detail']['episode_cloud_conflict']
                         entire_evaluation_process_sorties_self_conflict = \
                             entire_evaluation_process_sorties_self_conflict + \
                             test_episode_data[i]['sorties_conflict_detail']['episode_drone_conflict']
-                    elif 'num_reach_one_eps' in test_episode_data[i]:
+                    if 'num_reach_one_eps' in test_episode_data[i]:
                         entire_evaluation_process_reach_count = entire_evaluation_process_reach_count + 1
-                    elif 'all_goal_reached' in test_episode_data[i]:
+                    if 'all_goal_reached' in test_episode_data[i]:
                         one_eps_all_reach_count = one_eps_all_reach_count + 1
                     train_stats_counter = train_stats_counter + 1
                     if train_stats_counter % stats_check_counter == 0:

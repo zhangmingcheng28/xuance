@@ -27,9 +27,9 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         self.num_agents = 2
         self.agents = [f"agent_{i}" for i in range(self.num_agents)]
         # self.state_space = Box(-np.inf, np.inf, shape=[25, ])
-        self.state_space = Box(-np.inf, np.inf, shape=[7*2, ])
+        self.state_space = Box(-np.inf, np.inf, shape=[7, ])
         # self.observation_space = {agent: Box(-np.inf, np.inf, shape=[25, ]) for agent in self.agents}
-        self.observation_space = {agent: Box(-np.inf, np.inf, shape=[7*2, ]) for agent in self.agents}
+        self.observation_space = {agent: Box(-np.inf, np.inf, shape=[7, ]) for agent in self.agents}
         self.action_space = {agent: Discrete(n=5) for agent in self.agents}
         self.max_episode_steps = 200
         self._current_step = 0
@@ -239,7 +239,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         crash_penalty = reward_setting.crash
         reaching_reward = reward_setting.reach_goal
         dist_penaty_index = 1.6  # index of distance penalty
-        local_ratio = 0.5  # indicate the raio of reward used from global and local reward
+        local_ratio = 1  # indicate the raio of reward used from global and local reward
         wp_reach_reward = 0  # only appear once when agents first reach
         c_prob = 0  # prob penalty threshold
         step_reward = {}
@@ -321,6 +321,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 # ----------- Distance reward ----------
                 # Local distance reward: the gradient of individual agent to goal
                 # dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
+                dist_penaty = - (((d_i_to_c+d_c_to_f) / d_i_to_f)-1)*2
                 local_dist_penaty = - (d_c_to_f / d_i_to_f) * dist_penaty_index
 
                 # global distance reward: use average reward of all agents
@@ -376,10 +377,12 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             # if my_env_agent.reach_target and my_env_agent.activation_flag == 1: # load goal reaching score only once.
             if my_env_agent.reach_target:  # load goal reaching score only once.
                 if my_env_agent.activation_flag == 1:
-                    step_reward[my_env_agent.agent_name] = reaching_reward
+                    # step_reward[my_env_agent.agent_name] = reaching_reward
+                    # step_reward[my_env_agent.agent_name] = 0  # one agent reach, no reward
                     my_env_agent.activation_flag = 0  # when drone reached no need to do any changes to the drone
                 else:
                     step_reward[my_env_agent.agent_name] = 0
+                step_reward[my_env_agent.agent_name] = reward_setting.small_reach_reward
 
         # each agent gets the same reward obtained from the overall performance of the system
         # total_reward = sum(step_reward.values())
@@ -396,6 +399,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         elif all(goal_status):
             for agent_idx, agent in enumerate(self.agents):
                 my_env_agent = self.my_agent_self_data[agent]
+                step_reward[my_env_agent.agent_name] = reaching_reward
                 done[my_env_agent.agent_name] = 1
         else:
             pass
@@ -510,10 +514,10 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             combine_obs = norm_obs_list
             observation[agent_name] = np.array([combine_obs])
         # --------------- used when we apply combine observation -------------
-            combine_obs_holder.extend(combine_obs)
-
-        for agent_name in my_agents:
-            observation[agent_name] = combine_obs_holder
+        #     combine_obs_holder.extend(combine_obs)
+        #
+        # for agent_name in my_agents:
+        #     observation[agent_name] = combine_obs_holder
         # --------------- end of used when we apply combine observation -------------
         return observation
 

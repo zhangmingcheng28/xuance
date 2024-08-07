@@ -12,3 +12,4 @@ class reward_config:
     def __init__(self):
         self.reach_goal = 200
         self.crash = 200
+        self.small_reach_reward = 10
