@@ -292,6 +292,17 @@ class OnPolicyMARLAgents(MARLAgents):
         obs_dict = self.envs.buf_obs
         avail_actions = self.envs.buf_avail_actions if self.use_actions_mask else None
         state = self.envs.buf_state if self.use_global_state else None
+        # ------------------------------------ start of self-add for stats accumulation ---------------------
+        stats_check_counter = 100
+        sorties_conflict_detail_at_each_evaluation = [[] for _ in range(stats_check_counter)]
+        entire_evaluation_process_sorties_cloud_conflict = 0
+        entire_evaluation_process_sorties_self_conflict = 0
+        entire_evaluation_process_reach_count = 0
+        entire_evaluation_process_conflict_count = 0
+        entire_evaluation_process_stray_count = 0
+        one_eps_all_reach_count = 0
+        train_stats_counter = 0  # During training, we record the stats for every 100 episodes' termination
+        # ------------------------------------ end of self-add for stats accumulation ---------------------
         for i in tqdm(range(n_steps)):
             if i % 1000 == 0:
                 self.save_model("train_step_" + str(i)+"_model.pth")
@@ -299,7 +310,7 @@ class OnPolicyMARLAgents(MARLAgents):
             policy_out = self.action(obs_dict=obs_dict, state=state, avail_actions_dict=avail_actions, test_mode=False)
             actions_dict, log_pi_a_dict = policy_out['actions'], policy_out['log_pi']
             values_dict = policy_out['values']
-            next_obs_dict, rewards_dict, terminated_dict, truncated, info, _ = self.envs.step(actions_dict)
+            next_obs_dict, rewards_dict, terminated_dict, truncated, info, test_episode_data = self.envs.step(actions_dict)
             next_avail_actions = self.envs.buf_avail_actions if self.use_actions_mask else None
             self.store_experience(obs_dict, avail_actions, actions_dict, log_pi_a_dict, rewards_dict, values_dict,
                                   terminated_dict, info, **{'state': state})
@@ -316,10 +327,11 @@ class OnPolicyMARLAgents(MARLAgents):
             self.log_infos(train_info, self.current_step)
             obs_dict, avail_actions = deepcopy(next_obs_dict), deepcopy(next_avail_actions)
             state = self.envs.buf_state if self.use_global_state else None
-
             for i in range(self.n_envs):
-                if all(terminated_dict[i].values()) or truncated[i]:
-                    if all(terminated_dict[i].values()):
+                # if all(terminated_dict[i].values()) or truncated[i]:
+                if any(terminated_dict[i].values()) or truncated[i]:
+                    # if all(terminated_dict[i].values()):
+                    if any(terminated_dict[i].values()):
                         value_next = {key: 0.0 for key in self.agent_keys}
                     else:
                         state_i = state[i] if self.use_global_state else None
@@ -343,6 +355,44 @@ class OnPolicyMARLAgents(MARLAgents):
                             "env-%d" % i: np.mean(itemgetter(*self.agent_keys)(info[i]["episode_score"]))}
                     self.log_infos(step_info, self.current_step)
 
+                    # sorties_conflict_detail_at_each_evaluation[train_stats_counter] = test_episode_data[i][
+                    #     'sorties_conflict_detail']
+
+                    if 'episode_collision' in test_episode_data[i]:
+                        entire_evaluation_process_conflict_count = entire_evaluation_process_conflict_count + 1
+                    elif 'episode_all_stray' in test_episode_data[i]:
+                        entire_evaluation_process_stray_count = entire_evaluation_process_stray_count + 1
+                    elif 'sorties_conflict_detail' in test_episode_data[i]:
+                        entire_evaluation_process_sorties_cloud_conflict = \
+                            entire_evaluation_process_sorties_cloud_conflict + \
+                            test_episode_data[i]['sorties_conflict_detail']['episode_cloud_conflict']
+                        entire_evaluation_process_sorties_self_conflict = \
+                            entire_evaluation_process_sorties_self_conflict + \
+                            test_episode_data[i]['sorties_conflict_detail']['episode_drone_conflict']
+                    elif 'num_reach_one_eps' in test_episode_data[i]:
+                        entire_evaluation_process_reach_count = entire_evaluation_process_reach_count + 1
+                    elif 'all_goal_reached' in test_episode_data[i]:
+                        one_eps_all_reach_count = one_eps_all_reach_count + 1
+                    train_stats_counter = train_stats_counter + 1
+                    if train_stats_counter % stats_check_counter == 0:
+                        # ------------------------------------ start of self-add for stats accumulation ---------------------
+                        print('Total conflict episode detected is {}. \n'
+                              'Total number of episode have any drone reaches it goal is {}. \n'
+                              'Total number of stray episode occurs is {}.\n'
+                              'Total number of sorties conflict with cloud is {}.\n'
+                              'Total number of sorties conflict with each other is {}. \n'
+                              'Number of episodes that all goal reached is {}'.format(
+                            entire_evaluation_process_conflict_count, entire_evaluation_process_reach_count,
+                            entire_evaluation_process_stray_count, entire_evaluation_process_sorties_cloud_conflict,
+                            entire_evaluation_process_sorties_self_conflict, one_eps_all_reach_count))
+                        # ------------------------------------ end of self-add for stats accumulation ---------------------
+                        # sorties_conflict_detail_at_each_evaluation = [[] for _ in range(stats_check_counter)]
+                        entire_evaluation_process_sorties_cloud_conflict = 0
+                        entire_evaluation_process_sorties_self_conflict = 0
+                        entire_evaluation_process_reach_count = 0
+                        entire_evaluation_process_conflict_count = 0
+                        entire_evaluation_process_stray_count = 0
+                        one_eps_all_reach_count = 0
             self.current_step += self.n_envs
 
     def run_episodes(self, env_fn=None, n_episodes: int = 1, test_mode: bool = False):

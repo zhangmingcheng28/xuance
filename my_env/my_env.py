@@ -15,6 +15,9 @@ from shapely.strtree import STRtree
 from cloud import cloud_agent
 from shapely.affinity import scale
 from shapely.geometry import Polygon, Point, LineString
+from reward_class import *
+
+reward_setting = reward_config()
 
 
 class MyNewMultiAgentEnv(RawMultiAgentEnv):
@@ -23,8 +26,10 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
         self.env_id = env_config.env_id
         self.num_agents = 2
         self.agents = [f"agent_{i}" for i in range(self.num_agents)]
-        self.state_space = Box(-np.inf, np.inf, shape=[25, ])
-        self.observation_space = {agent: Box(-np.inf, np.inf, shape=[25, ]) for agent in self.agents}
+        # self.state_space = Box(-np.inf, np.inf, shape=[25, ])
+        self.state_space = Box(-np.inf, np.inf, shape=[7*2, ])
+        # self.observation_space = {agent: Box(-np.inf, np.inf, shape=[25, ]) for agent in self.agents}
+        self.observation_space = {agent: Box(-np.inf, np.inf, shape=[7*2, ]) for agent in self.agents}
         self.action_space = {agent: Discrete(n=5) for agent in self.agents}
         self.max_episode_steps = 200
         self._current_step = 0
@@ -231,8 +236,8 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
 
     def obtain_reward(self):
         # crash_penalty = 100
-        crash_penalty = 200
-        reaching_reward = 200
+        crash_penalty = reward_setting.crash
+        reaching_reward = reward_setting.reach_goal
         dist_penaty_index = 1.6  # index of distance penalty
         local_ratio = 0.5  # indicate the raio of reward used from global and local reward
         wp_reach_reward = 0  # only appear once when agents first reach
@@ -252,7 +257,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
 
                 # check if host drone has reached its waypoints
                 if host_circle.intersects(wp_circle) or host_circle.within(wp_circle) or host_circle.overlaps(wp_circle):
-                    print("{} reaches its waypoint of env number {}".format(my_env_agent.agent_name, self.env_index))
+                    print("{} reaches its waypoint at step {} of env number {}".format(my_env_agent.agent_name, self._current_step, self.env_index))
                     step_reward[my_env_agent.agent_name] = step_reward[my_env_agent.agent_name] + wp_reach_reward
                     del my_env_agent.waypoints[0]
 
@@ -283,7 +288,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 # conflicting_cloud = polygons_single_cloud_conflict(host_circle, cloud_area_moved)
                 if len(conflicting_cloud) > 0:
                     my_env_agent.cloud_collision = True
-                    print("{} conflict with cloud of env number {}".format(my_env_agent.agent_name, self.env_index))
+                    print("{} conflict with cloud at step {} of env number {}".format(my_env_agent.agent_name, self._current_step, self.env_index))
                     break
 
             # check whether current drone crash into other drones
@@ -295,7 +300,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
                 other_agent_pass_volume = other_agent_pass_line.buffer(my_env_other_agent.NMAC_radius, cap_style=1)
                 if between_polygon_conflict(host_passed_volume, other_agent_pass_volume):
                     my_env_agent.drone_collision = True
-                    print(" {} hit {} of env number {}".format(my_env_agent.agent_name, my_env_other_agent.agent_name, self.env_index))
+                    print(" {} hit {} at step {} of env number {}".format(my_env_agent.agent_name, my_env_other_agent.agent_name, self._current_step, self.env_index))
                     break
 
             # ----------- Reward function starts and done for current agent -------------------
@@ -399,6 +404,7 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
 
     def get_cur_obs(self, my_agents):
         observation = {}
+        combine_obs_holder = []
         for agent_name in my_agents:
             my_agent_data = self.my_agent_self_data[agent_name]
 
@@ -500,12 +506,15 @@ class MyNewMultiAgentEnv(RawMultiAgentEnv):
             radar_distance_list = [value / my_agent_data.detectionRange for value in distances.values()]  # with normalization
 
             norm_obs_list = [norm_pos[0], norm_pos[1], my_agent_data.heading[0], my_agent_data.activation_flag, norm_shortest_neigh_dist, norm_destination[0], norm_destination[1]]
-            combine_obs = norm_obs_list + radar_distance_list
+            # combine_obs = norm_obs_list + radar_distance_list
+            combine_obs = norm_obs_list
             observation[agent_name] = np.array([combine_obs])
+        # --------------- used when we apply combine observation -------------
+            combine_obs_holder.extend(combine_obs)
 
-            # observation[agent_name] = np.array([my_agent_data.pos[0], my_agent_data.pos[1], my_agent_data.heading[0],
-            #                                     my_agent_data.activation_flag,
-            #                                     my_agent_data.destination[0], my_agent_data.destination[1]])
+        for agent_name in my_agents:
+            observation[agent_name] = combine_obs_holder
+        # --------------- end of used when we apply combine observation -------------
         return observation
 
 def parse_args():

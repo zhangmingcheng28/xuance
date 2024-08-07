@@ -68,9 +68,9 @@ use_grad_clip: True  # Gradient normalization.
 grad_clip_norm: 10.0  # The max norm of the gradient.
 clip_type: 1  # Gradient clip for Mindspore: 0: ms.ops.clip_by_value; 1: ms.nn.ClipByNorm().
 
-running_steps: 1500000  # The total running steps.
+running_steps: 850000  # The total running steps.
 eval_interval: 100000  # The interval between every two trainings.
-test_episode: 1 # The episodes to test in each test period.  # note this parameter will also create individual environment to test
+test_episode: 50 # The episodes to test in each test period.  # note this parameter will also create individual environment to test
 
 log_dir: "./logs/ippo/"
 model_dir: "./models/ippo/"

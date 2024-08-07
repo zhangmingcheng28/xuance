@@ -2,6 +2,9 @@ import numpy as np
 from xuance.common import space2shape
 from xuance.environment.vector_envs.vector_env import VecEnv, AlreadySteppingError, NotSteppingError
 from utilities import *
+from reward_class import *
+
+# reward_setting = reward_function.reward_config()
 
 class DummyVecMultiAgentEnv(VecEnv):
     """
@@ -74,48 +77,48 @@ class DummyVecMultiAgentEnv(VecEnv):
         truncated = [False for _ in self.envs]
         # ------------------------------------ start of self-add for stats accumulation ---------------------
         test_episode_data = [{} for _ in self.envs]
+        reward_setting = reward_config()
         # ------------------------------------ end of self-add for stats accumulation ---------------------
         for e in range(self.num_envs):
             action_n = self.actions[e]
             self.buf_obs[e], rew_dict[e], terminated_dict[e], truncated[e], self.buf_info[e] = self.envs[e].step(action_n)
             self.buf_avail_actions[e] = self.buf_info[e]['avail_actions']
             self.buf_state[e] = self.buf_info[e]['state']
-            if 200 in rew_dict[e].values():
+            if any(value >= reward_setting.reach_goal for value in rew_dict[e].values()):
                 test_episode_data[e]['episode_any_AC_reach'] = 1
             # if all(terminated_dict[e].values()) or truncated[e]:
             if any(terminated_dict[e].values()) or truncated[e]:
-                # ---- self added code for visualization of the result after each successful evaluation ----
-                # only used when evaluation mode
-                flight_data = [agent_obj.flight_data for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items()]
-                # save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[e].env._current_step)
-                test_episode_data[e]['flight_data'] = flight_data
-                # ---- end self added code for visualization of the result after each successful evaluation ----
-
+                # this is to record what happen in one complete episode
                 # ------------------------------------ start of self-add for stats accumulation ---------------------
-                # # loop through each test scenario for stats, only used for any(terminated_dict[e].values()) case
+                flight_data = []
+                reach_target_count_each_eps = []
                 cloud_conflict_count = 0
                 drone_collision_count = 0
-                # if -400 in rew_dict[e].values():
-                if any(value <= -200 for value in rew_dict[e].values()):
+                if any(value <= -reward_setting.crash for value in rew_dict[e].values()):
                     test_episode_data[e]['episode_collision'] = 1
-                # elif 200 in rew_dict[e].values():
-                elif any(value >= 200 for value in rew_dict[e].values()):
-                    test_episode_data[e]['episode_any_AC_reach'] = 1
-                # elif truncated[e] and -400 not in rew_dict[e].values() and 200 not in rew_dict[e].values():
                 elif truncated[e]:
                     test_episode_data[e]['episode_all_stray'] = 1
                 else:
                     print("None of the situation exist")
-
                 for agent_name, agent_obj in self.envs[e].env.my_agent_self_data.items():
+                    flight_data.append(agent_obj.flight_data)
                     if agent_obj.cloud_collision:
                         cloud_conflict_count = cloud_conflict_count + 1
                     elif agent_obj.drone_collision:
                         drone_collision_count = drone_collision_count + 1
+                    elif agent_obj.reach_target:
+                        reach_target_count_each_eps.append(1)
                     else:
                         pass
                 test_episode_data[e]['sorties_conflict_detail'] = {'episode_cloud_conflict': cloud_conflict_count,
                                                                    'episode_drone_conflict': drone_collision_count}
+                test_episode_data[e]['flight_data'] = flight_data
+                test_episode_data[e]['num_reach_one_eps'] = sum(reach_target_count_each_eps)
+                if sum(reach_target_count_each_eps) == len(self.envs[e].env.my_agent_self_data):
+                    test_episode_data[e]['all_goal_reached'] = 1
+                # only used when evaluation mode
+                # save_gif(self.envs[e].env, flight_data, self.envs[e].env.cloud_movement, self.envs[e].env._current_step)
+
                 # ------------------------------------ end of self-add for stats accumulation ---------------------
                 obs_reset_dict, info_reset = self.envs[e].reset()
                 self.buf_info[e]["reset_obs"] = obs_reset_dict
